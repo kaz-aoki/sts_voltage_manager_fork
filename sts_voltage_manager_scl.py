@@ -14,8 +14,8 @@ from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from matplotlib.figure import Figure
 import matplotlib.pyplot as plt
 
-display_nrow = 5
-display_ncol = 2
+display_nrow = 3
+display_ncol = 1
 window_width = 1550
 window_height =800
 
@@ -23,7 +23,7 @@ file_name = "./Vch_name.txt"
 
 ip = '192.168.48.46'
 
-d_sens = {0:'101', 1:'102', 2:'103', 3:'104', 4:'106', 5:'107', 6:'109', 7:'207', 8:'RP', 9:'GBT'}
+d_sens = {0:'test', 1:'GBT', 2:'RP', 3:'104', 4:'106', 5:'107', 6:'109', 7:'207', 8:'RP', 9:'GBT'}
 
 update_time = 1 #second
 
@@ -949,7 +949,7 @@ def create_frame(root, rows, columns, sens_name):
                     subframe = tk.Frame(frame, borderwidth=1, relief="solid")
                     subframe.grid(row=row, column=col, sticky="nsew")
                     subframe.grid_columnconfigure(0, weight=1)
-                    subframe.grid_columnconfigure(1, weight=1)
+                    #subframe.grid_columnconfigure(1, weight=1)
                     subframe.grid_rowconfigure(0, weight=1)
 
                     button_text_sw,button_bg_sw = userconfig_value(row,sens_name)

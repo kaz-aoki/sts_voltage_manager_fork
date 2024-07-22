@@ -18,7 +18,14 @@ file_name = "./Vch_name.txt"
 
 ip = '192.168.48.46'
 
-d_sens = {0:'101', 1:'102', 2:'207', 3:'104', 4:'106', 5:'107', 6:'109', 7:'RP', 8:'GBT', 9:'RP'}
+display_nrow = 3
+display_ncol = 1
+window_width = 900
+window_height =600
+
+#d_sens = {0:'101', 1:'102', 2:'207', 3:'104', 4:'106', 5:'107', 6:'109', 7:'RP', 8:'GBT', 9:'RP'}
+
+d_sens = {0:'test', 1:'GBT', 2:'RP', 3:'RP', 4:'106', 5:'107', 6:'109', 7:'RP', 8:'GBT', 9:'RP'}
 
 update_time = 1 #second
 
@@ -944,7 +951,7 @@ def create_frame(root, rows, columns, sens_name):
                     subframe = tk.Frame(frame, borderwidth=1, relief="solid")
                     subframe.grid(row=row, column=col, sticky="nsew")
                     subframe.grid_columnconfigure(0, weight=1)
-                    subframe.grid_columnconfigure(1, weight=1)
+                    #subframe.grid_columnconfigure(1, weight=1)
                     subframe.grid_rowconfigure(0, weight=1)
 
                     button_text_sw,button_bg_sw = userconfig_value(row,sens_name)
@@ -1385,9 +1392,9 @@ def create_gui(root_frame):
     n_sens = 0
     frame_grid = []
 
-    for i in range(3):#行row
+    for i in range(display_nrow):#行row
         row_frames = []
-        for j in range(3):#列columm
+        for j in range(display_ncol):#列columm
             if d_sens[n_sens] != 'GBT' and d_sens[n_sens] != 'RP':
                 frame, _, _ = create_frame(root_frame, 8, 9, d_sens[n_sens])
                 frame.grid(row=i, column=j, padx=5, pady=5)
@@ -1421,8 +1428,8 @@ if __name__ == "__main__":
 
     snmp_walk_all()
 
-    window_width = 1900
-    window_height =1300
+    #window_width_real = window_width
+    #window_height_real = window_height
     screen_width = root.winfo_screenwidth()
     screen_height = root.winfo_screenheight()
     x = (screen_width // 2) - (window_width // 2)
