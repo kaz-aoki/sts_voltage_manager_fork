@@ -14,8 +14,8 @@ from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from matplotlib.figure import Figure
 import matplotlib.pyplot as plt
 
-display_nrow = 3
-display_ncol = 1
+display_nrow = 6
+display_ncol = 2
 window_width = 1550
 window_height =800
 
@@ -23,7 +23,9 @@ file_name = "./Vch_name.txt"
 
 ip = '192.168.48.46'
 
-d_sens = {0:'test', 1:'GBT', 2:'RP', 3:'104', 4:'106', 5:'107', 6:'109', 7:'207', 8:'RP', 9:'GBT'}
+#d_sens = {0:'test', 1:'GBT', 2:'RP', 3:'104', 4:'106', 5:'107', 6:'109', 7:'207', 8:'RP', 9:'GBT'}
+#d_sens = {0:'101', 1:'102', 2:'207', 3:'104', 4:'106', 5:'107', 6:'109', 7:'RP', 8:'GBT', 9:'RP'}
+d_sens = {0:'101', 1:'102', 2:'103', 3:'104', 4:'106', 5:'107', 6:'108', 7:'109', 8:'206', 9:'207', 10:'RP', 11:'GBT', 12:'RP'}
 
 update_time = 1 #second
 
@@ -134,7 +136,8 @@ def snmp_hvset(voltage, ch_number):
 
 def snmp_walk_all():
     for obj in object_list:
-        result_command = subprocess.run('snmpwalk -v 2c -m +WIENER-CRATE-MIB -c guru ' + ip + ' ' + obj ,shell=True, stdout = subprocess.PIPE)
+#        result_command = subprocess.run('snmpwalk -v 2c -m +WIENER-CRATE-MIB -c guru ' + ip + ' ' + obj ,shell=True, stdout = subprocess.PIPE)
+        result_command = subprocess.run('snmpwalk -Op 10.8 -v 2c -m +WIENER-CRATE-MIB -c guru ' + ip + ' ' + obj ,shell=True, stdout = subprocess.PIPE)
         result = result_command.stdout.decode("utf8")
         result_strs = result.splitlines()
 
