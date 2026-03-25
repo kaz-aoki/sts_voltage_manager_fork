@@ -14,8 +14,25 @@ from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from matplotlib.figure import Figure
 import matplotlib.pyplot as plt
 
-display_nrow = 6
-display_ncol = 2
+
+iwin = -1
+
+if len(sys.argv) > 1:
+    try:
+        iwin = int(sys.argv[1])
+    except:
+        print(f'{sys.argv[0]} [0/1]')
+        exit(1)
+
+if iwin == 1:
+    display_nrow = 3
+    display_ncol = 2
+elif iwin == 2:
+    display_nrow = 3
+    display_ncol = 2
+else:
+    display_nrow = 6
+    display_ncol = 2
 window_width = 1550
 window_height =800
 
@@ -25,7 +42,12 @@ ip = '192.168.48.46'
 
 #d_sens = {0:'test', 1:'GBT', 2:'RP', 3:'104', 4:'106', 5:'107', 6:'109', 7:'207', 8:'RP', 9:'GBT'}
 #d_sens = {0:'101', 1:'102', 2:'207', 3:'104', 4:'106', 5:'107', 6:'109', 7:'RP', 8:'GBT', 9:'RP'}
-d_sens = {0:'101', 1:'102', 2:'103', 3:'104', 4:'106', 5:'107', 6:'108', 7:'109', 8:'206', 9:'207', 10:'RP', 11:'GBT', 12:'RP'}
+if iwin == 1:
+    d_sens = {0:'101', 1:'102', 2:'103', 3:'104', 4:'106', 5:'107'}
+elif iwin == 2:
+    d_sens = {0:'108', 1:'109', 2:'206', 3:'207', 4:'RP', 5:'GBT'}
+else:
+    d_sens = {0:'101', 1:'102', 2:'103', 3:'104', 4:'106', 5:'107', 6:'108', 7:'109', 8:'206', 9:'207', 10:'RP', 11:'GBT', 12:'RP'}
 
 update_time = 1 #second
 
