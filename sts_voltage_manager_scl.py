@@ -1778,5 +1778,26 @@ if __name__ == "__main__":
     canvas.pack(expand=True, fill=tk.BOTH)
     canvas.create_window((0,0), window=frame, anchor="nw", width=f"{window_width}", height=1600)
 
+    def on_mousewheel(event):
+        # Ignore events from voltage dialogs and graph windows.
+        if event.widget.winfo_toplevel() != root:
+            return
+
+        if event.num == 4:       # Linux: scroll up
+            steps = -1
+        elif event.num == 5:     # Linux: scroll down
+            steps = 1
+        elif event.delta:        # Windows / macOS
+            steps = -1 if event.delta > 0 else 1
+        else:
+            return
+
+        canvas.yview_scroll(steps * 3, "units")
+        return "break"
+
+    root.bind("<Button-4>", on_mousewheel, add="+")
+    root.bind("<Button-5>", on_mousewheel, add="+")
+    root.bind("<MouseWheel>", on_mousewheel, add="+")
+
     root.mainloop()
 
