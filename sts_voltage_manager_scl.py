@@ -1,5 +1,6 @@
 #!/usr/bin/python3
 import threading
+import queue
 import math
 import copy
 import subprocess
@@ -622,7 +623,11 @@ def stop_task(sens_name):
 #        stop_wd.mainloop()
 
 def snmpwalk_hv_current(ch):
-    result_command = subprocess.run('snmpwalk -Op +0.12 -v 2c -m +WIENER-CRATE-MIB -c guru ' + ip + ' outputMeasurementCurrent.'+ch,shell=True, stdout = subprocess.PIPE)
+    result_command = subprocess.run(
+        ['snmpwalk', '-Op', '+0.12', '-v', '2c', '-m', '+WIENER-CRATE-MIB',
+         '-c', 'guru', ip, 'outputMeasurementCurrent.' + ch],
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=True, timeout=10,
+    )
     result_strs = result_command.stdout.decode("utf8")
     term = result_strs.split()
     current = term[-2]
@@ -634,8 +639,7 @@ def get_hv_currents(p_HVch_number, n_HVch_number):
     current_n = snmpwalk_hv_current(n_HVch_number)
     return current_p, current_n
 
-def update_graph(sens_name, p_HVch_number, n_HVch_number, p_side_currents, n_side_currents, canvas, fig, ax):
-    current_p, current_n = get_hv_currents(p_HVch_number, n_HVch_number)
+def update_graph(current_p, current_n, p_side_currents, n_side_currents, canvas, fig, ax):
     p_side_currents.append(current_p)
     n_side_currents.append(current_n)
 
@@ -670,16 +674,34 @@ def update_graph(sens_name, p_HVch_number, n_HVch_number, p_side_currents, n_sid
     ax.legend(loc='upper left', bbox_to_anchor=(1, 1))
     canvas.draw()
 
+def read_graph_currents(p_channel, n_channel, results, stopped):
+    # Worker thread: never access Tk or Matplotlib objects here.
+    try:
+        if stopped.is_set():
+            return
+        current_p = snmpwalk_hv_current(p_channel)
+        if stopped.is_set():
+            return
+        current_n = snmpwalk_hv_current(n_channel)
+        result = ((current_p, current_n), None)
+    except Exception as exc:
+        result = (None, str(exc))
+    if not stopped.is_set():
+        results.put_nowait(result)
+
+
 def hv_current_graph(sens_name):
     p_HVch_number, n_HVch_number = search_HVch_number(sens_name)
     graph_wd = tk.Toplevel(root)
     graph_wd.title("HV_Current_Graph")
-    graph_wd.geometry("1200x530")
+    graph_wd.geometry("1200x560")
 
     p_side_currents = []
     n_side_currents = []
-    running = True
+    stopped = threading.Event()
+    results = queue.Queue(maxsize=1)
     after_id = None
+    in_flight = False
 
     fig = Figure(figsize=(15, 5), dpi=100)
     ax = fig.add_subplot(111)
@@ -687,10 +709,12 @@ def hv_current_graph(sens_name):
     canvas = FigureCanvasTkAgg(fig, master=graph_wd)
     widget = canvas.get_tk_widget()
     widget.pack()
+    status_label = tk.Label(graph_wd, text="Reading current...")
+    status_label.pack()
 
     def stop_update():
-        nonlocal running, after_id
-        running = False
+        nonlocal after_id
+        stopped.set()
         if after_id is not None:
             root.after_cancel(after_id)
             after_id = None
@@ -700,19 +724,41 @@ def hv_current_graph(sens_name):
         graph_wd.destroy()
 
     def on_destroy(event):
-        # Also handle destruction by other code, such as ramp completion.
         if event.widget == graph_wd:
             stop_update()
 
-    def refresh():
-        nonlocal after_id
+    def poll_result():
+        nonlocal after_id, in_flight
         after_id = None
-        if not running:
+        if stopped.is_set():
             return
-        update_graph(sens_name, p_HVch_number, n_HVch_number,
-                     p_side_currents, n_side_currents, canvas, fig, ax)
-        if running:
+        try:
+            currents, error = results.get_nowait()
+        except queue.Empty:
+            after_id = root.after(50, poll_result)
+            return
+        in_flight = False
+        if error is None:
+            status_label.configure(text="")
+            update_graph(*currents, p_side_currents, n_side_currents, canvas, fig, ax)
+        else:
+            status_label.configure(text="SNMP read failed; retrying.", fg="red")
+        if not stopped.is_set():
             after_id = root.after(1000, refresh)
+
+    def refresh():
+        nonlocal after_id, in_flight
+        after_id = None
+        if stopped.is_set() or in_flight:
+            return
+        in_flight = True
+        worker = threading.Thread(
+            target=read_graph_currents,
+            args=(p_HVch_number, n_HVch_number, results, stopped),
+            daemon=True,
+        )
+        worker.start()
+        after_id = root.after(50, poll_result)
 
     graph_wd.protocol("WM_DELETE_WINDOW", close_graph)
     graph_wd.bind("<Destroy>", on_destroy, add="+")
