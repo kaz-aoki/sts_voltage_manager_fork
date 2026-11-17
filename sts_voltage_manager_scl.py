@@ -63,7 +63,6 @@ text_update_items = []
 button_update_items = []
 
 int_ramptask_value = False
-graph_update_running_graph = False
 
 gbt_s_nm = 0
 rp_s_nm = 0
@@ -636,14 +635,12 @@ def get_hv_currents(p_HVch_number, n_HVch_number):
     return current_p, current_n
 
 def update_graph(sens_name, p_HVch_number, n_HVch_number, p_side_currents, n_side_currents, canvas, fig, ax):
-    if not graph_update_running_graph:
-        return
     current_p, current_n = get_hv_currents(p_HVch_number, n_HVch_number)
     p_side_currents.append(current_p)
     n_side_currents.append(current_n)
 
-    p_side_currents = p_side_currents[-30:]
-    n_side_currents = n_side_currents[-30:]
+    del p_side_currents[:-30]
+    del n_side_currents[:-30]
 
     ax.clear()
     ax.axhline(y=0, color='gray', linestyle='--')
@@ -664,7 +661,6 @@ def update_graph(sens_name, p_HVch_number, n_HVch_number, p_side_currents, n_sid
     ax.set_xlabel('Time [s]')
     ax.set_ylabel('Current [µA]')
 
-    fig.text(0.5, 0.93, f'{sens_name}_HV', ha='center', transform=fig.transFigure, fontsize=12, color='green')
 
     if p_side_currents:
         ax.text(len(p_side_currents) - 1, p_side_currents[-1], f'{p_side_currents[-1]:.2f}', color='blue')
@@ -673,16 +669,8 @@ def update_graph(sens_name, p_HVch_number, n_HVch_number, p_side_currents, n_sid
 
     ax.legend(loc='upper left', bbox_to_anchor=(1, 1))
     canvas.draw()
-    root.after(1000, lambda: update_graph(sens_name, p_HVch_number, n_HVch_number, p_side_currents, n_side_currents, canvas, fig, ax))
-
-def stop_graph_update():
-    global graph_update_running_graph
-    graph_update_running_graph = False
 
 def hv_current_graph(sens_name):
-    global graph_update_running_graph
-    graph_update_running_graph = True
-
     p_HVch_number, n_HVch_number = search_HVch_number(sens_name)
     graph_wd = tk.Toplevel(root)
     graph_wd.title("HV_Current_Graph")
@@ -690,22 +678,50 @@ def hv_current_graph(sens_name):
 
     p_side_currents = []
     n_side_currents = []
+    running = True
+    after_id = None
 
     fig = Figure(figsize=(15, 5), dpi=100)
     ax = fig.add_subplot(111)
+    fig.text(0.5, 0.93, f'{sens_name}_HV', ha='center', transform=fig.transFigure, fontsize=12, color='green')
     canvas = FigureCanvasTkAgg(fig, master=graph_wd)
     widget = canvas.get_tk_widget()
     widget.pack()
 
-     # 中断ボタンの追加
-    stop_button = tk.Button(graph_wd, text="Stop", command=stop_graph_update)
+    def stop_update():
+        nonlocal running, after_id
+        running = False
+        if after_id is not None:
+            root.after_cancel(after_id)
+            after_id = None
+
+    def close_graph():
+        stop_update()
+        graph_wd.destroy()
+
+    def on_destroy(event):
+        # Also handle destruction by other code, such as ramp completion.
+        if event.widget == graph_wd:
+            stop_update()
+
+    def refresh():
+        nonlocal after_id
+        after_id = None
+        if not running:
+            return
+        update_graph(sens_name, p_HVch_number, n_HVch_number,
+                     p_side_currents, n_side_currents, canvas, fig, ax)
+        if running:
+            after_id = root.after(1000, refresh)
+
+    graph_wd.protocol("WM_DELETE_WINDOW", close_graph)
+    graph_wd.bind("<Destroy>", on_destroy, add="+")
+    stop_button = tk.Button(graph_wd, text="Stop", command=stop_update)
     stop_button.pack()
 
-    update_graph(sens_name, p_HVch_number, n_HVch_number, p_side_currents, n_side_currents, canvas, fig, ax)
+    refresh()
 
-#    graph_wd.mainloop()
 #######################################################
-
 def rampup(sens_name, time_int, voltage_int, vol_from, vol_to):
     p_HVch_number, n_HVch_number = search_HVch_number(sens_name)
     volt_int = float(voltage_int)
