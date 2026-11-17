@@ -85,6 +85,9 @@ changed_keys = set()
 snmp_thread_running = True
 
 text_widget_map ={}     # key=(oid, ch_number) -> [("sensor", label, row, sens_name), ("device", label, ch_name)]
+max_tv_edit_enabled = False
+max_tv_labels = []
+
 button_widget_map = {}  # key=(special, ch_number) -> [("onoff_sensor", button, row, sens_name), ...]
 
 def add_text_widget_binding(oid, ch_name, item):
@@ -449,7 +452,24 @@ def on_off_device_wd(ch_name,oid):
 #    on_off_wd.mainloop()
 
 #Low VOLTAGE#####################################################################################################################################################
+def toggle_max_tv_edit():
+    global max_tv_edit_enabled
+    max_tv_edit_enabled = not max_tv_edit_enabled
+    for label in max_tv_labels:
+        label.configure(cursor="hand2" if max_tv_edit_enabled else "")
+    max_tv_permission_button.configure(
+        text="MaxTV変更を無効にする（現在許可中・危険）" if max_tv_edit_enabled else "MaxTV変更許可（危険）",
+        bg="red" if max_tv_edit_enabled else "gray80",
+        fg="white" if max_tv_edit_enabled else "black",
+        activebackground="red" if max_tv_edit_enabled else "gray80",
+        activeforeground="white" if max_tv_edit_enabled else "black",
+    )
+
+
 def max_terminal_voltage_window(ch_name):
+    if not max_tv_edit_enabled:
+        return
+
     ch_number = name_to_number.get(ch_name)
     if ch_number is None:
         messagebox.showerror("Set MaxTV", f"Unknown channel: {ch_name}", parent=root)
@@ -462,7 +482,7 @@ def max_terminal_voltage_window(ch_name):
         minvalue=0.0,
         parent=root,
     )
-    if voltage is None:
+    if voltage is None or not max_tv_edit_enabled:
         return
     if not math.isfinite(voltage):
         messagebox.showerror("Set MaxTV", "Enter a finite voltage.", parent=root)
@@ -1357,7 +1377,7 @@ def create_frame(root, rows, columns, sens_name):
                 row_labels.append(label)
                 ### text_update_items.append(('sensor', label, row, sens_name, 'outputSupervisionMaxTerminalVoltage'))
                 ch_name = sensor_row_to_ch_name(row, sens_name)
-                label.configure(cursor="hand2")
+                max_tv_labels.append(label)
                 label.bind("<Button-1>", lambda event, channel=ch_name: max_terminal_voltage_window(channel))
                 add_text_widget_binding('outputSupervisionMaxTerminalVoltage', ch_name, ('sensor', label, row, sens_name))
                 update_text(label,row,sens_name,'outputSupervisionMaxTerminalVoltage')
@@ -1625,7 +1645,7 @@ def create_frame_device(root,device,device_rows,columns):
                     label_text = get_value_use_all(rp_row_ch_name[row],'outputSupervisionMaxTerminalVoltage')
                 label = tk.Label(subframe, text=label_text, bg= 'gray90')
                 ### text_update_items.append(('device', label, ch_name, 'outputSupervisionMaxTerminalVoltage'))
-                label.configure(cursor="hand2")
+                max_tv_labels.append(label)
                 label.bind("<Button-1>", lambda event, channel=ch_name: max_terminal_voltage_window(channel))
                 add_text_widget_binding('outputSupervisionMaxTerminalVoltage', ch_name,
                                         ('device', label, ch_name))
@@ -1804,6 +1824,12 @@ if __name__ == "__main__":
 
     canvas.configure(scrollregion=(0, 0, f"{window_width}", 1600))
     canvas.configure(yscrollcommand=scrollbar.set)
+
+    max_tv_permission_button = tk.Button(
+        root, text="MaxTV変更許可（危険）", command=toggle_max_tv_edit,
+        bg="gray80", fg="black",
+    )
+    max_tv_permission_button.pack(side=tk.BOTTOM, fill=tk.X, padx=5, pady=5)
 
     scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
     canvas.pack(expand=True, fill=tk.BOTH)
