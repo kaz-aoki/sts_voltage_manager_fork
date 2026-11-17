@@ -1077,6 +1077,10 @@ def create_frame(root, rows, columns, sens_name):
                 merged_frame.grid_rowconfigure(0, weight=1)
 
                 label_text = f"{sens_name}"
+                lv_channel = name_to_number.get(f"{sens_name}_P2.5", "")
+                if lv_channel.startswith("u") and lv_channel[1:].isdigit():
+                    crate_number = int(lv_channel[1:]) // 100
+                    label_text += f"\n(c{crate_number})"
                 label = tk.Label(merged_frame, text=label_text, bg='gray70')
                 label.grid(sticky="nsew")
                 row_labels.append(label)
