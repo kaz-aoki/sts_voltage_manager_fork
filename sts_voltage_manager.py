@@ -18,14 +18,15 @@ file_name = "./Vch_name.txt"
 
 ip = '192.168.48.46'
 
-display_nrow = 3
-display_ncol = 1
-window_width = 900
-window_height =600
+display_nrow = 4
+display_ncol = 2
+#window_width = 900
+window_width = 1600
+window_height = 1000
 
-#d_sens = {0:'101', 1:'102', 2:'207', 3:'104', 4:'106', 5:'107', 6:'109', 7:'RP', 8:'GBT', 9:'RP'}
+d_sens = {0:'101', 1:'102', 2:'207', 3:'104', 4:'106', 5:'107', 6:'109', 7:'RP', 8:'GBT', 9:'RP'}
 
-d_sens = {0:'test', 1:'GBT', 2:'RP', 3:'RP', 4:'106', 5:'107', 6:'109', 7:'RP', 8:'GBT', 9:'RP'}
+#d_sens = {0:'test', 1:'GBT', 2:'RP', 3:'RP', 4:'106', 5:'107', 6:'109', 7:'RP', 8:'GBT', 9:'RP'}
 
 update_time = 1 #second
 

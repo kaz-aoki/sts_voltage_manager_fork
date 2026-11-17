@@ -1,4 +1,6 @@
 #!/usr/bin/python3
+import threading
+import copy
 import subprocess
 import time
 from datetime import datetime
@@ -72,9 +74,29 @@ hv_sensors = []
 
 object_list = ['outputVoltage','outputSwitch','outputUserConfig','outputMeasurementSenseVoltage','outputMeasurementCurrent', 'outputSupervisionMaxTerminalVoltage','outputMeasurementTerminalVoltage']
 
+all_snmp_walk_status = {}
+
 for obj in object_list:
     all_snmp_walk_status[obj]={}
 
+snmp_data_lock = threading.Lock()
+changed_keys = set()
+snmp_thread_running = True
+
+text_widget_map ={}     # key=(oid, ch_number) -> [("sensor", label, row, sens_name), ("device", label, ch_name)]
+button_widget_map = {}  # key=(special, ch_number) -> [("onoff_sensor", button, row, sens_name), ...]
+
+def add_text_widget_binding(oid, ch_name, item):
+    ch_number = str(search_ch_number(ch_name))
+    key = (oid, ch_number)
+    text_widget_map.setdefault(key, []).append(item)
+
+def add_button_widget_binding(kind, ch_name,item):
+    ch_number = str(search_ch_number(ch_name))
+    key = (kind, ch_number)
+    button_widget_map.setdefault(key,[]).append(item)
+    
+    
 with open(file_name, 'r') as file:
     for line in file:
         parts = line.strip().split(',')
@@ -161,7 +183,6 @@ def snmp_hvset(voltage, ch_number):
 
 def snmp_walk_all():
     for obj in object_list:
-#        result_command = subprocess.run('snmpwalk -v 2c -m +WIENER-CRATE-MIB -c guru ' + ip + ' ' + obj ,shell=True, stdout = subprocess.PIPE)
         result_command = subprocess.run('snmpwalk -Op 10.8 -v 2c -m +WIENER-CRATE-MIB -c guru ' + ip + ' ' + obj ,shell=True, stdout = subprocess.PIPE)
         result = result_command.stdout.decode("utf8")
         result_strs = result.splitlines()
@@ -183,6 +204,54 @@ def snmp_walk_all():
 
     root.after(update_time*1000, snmp_walk_all)
 
+def snmp_walk_all_worker():
+    global changed_keys, snmp_thread_running
+
+    while snmp_thread_running:
+        local_changed = set()
+        new_status = {obj: {} for obj in object_list}
+
+        for obj in object_list:
+            result_command = subprocess.run(
+                'snmpwalk -Op 10.8 -v 2c -m +WIENER-CRATE-MIB -c guru ' + ip + ' ' + obj,
+                shell=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE
+            )
+            result = result_command.stdout.decode("utf8")
+            result_strs = result.splitlines()
+
+            for result_of_item in result_strs:
+                term = result_of_item.split()
+                if not term:
+                    continue
+
+                term_ini = term[0].split('.')
+                ch_number = term_ini[-1]
+
+                if obj != 'outputUserConfig' and obj != 'outputSwitch':
+                    item_status = term[-2]
+                elif obj == 'outputSwitch':
+                    term_fin = list(term[-1])
+                    item_status = term_fin[-2]
+                else:
+                    item_status = term[-1]
+
+                new_status[obj][ch_number] = item_status
+
+        with snmp_data_lock:
+            for obj in object_list:
+                for ch_number, new_value in new_status[obj].items():
+                    old_value = all_snmp_walk_status[obj].get(ch_number)
+                    if old_value != new_value:
+                        all_snmp_walk_status[obj][ch_number] = new_value
+                        local_changed.add((obj, ch_number))
+
+            changed_keys |= local_changed
+
+        time.sleep(update_time)
+
+    
 def get_value_use_all(ch_name,oid_name):#strで入れてstrで返す。
     ch_number = str(search_ch_number(ch_name))
     item_status = 0
@@ -279,7 +348,8 @@ def userconfig_value(row,sens_name):
         button_bg = 'gray80'
     else :
         on_off_label = 'none'
-        button_bg = 'f"{window_height}"f"{window_height}"gray80'
+        #button_bg = 'f"{window_height}"f"{window_height}"gray80'
+        button_bg = 'gray80'
 
     return on_off_label,button_bg
 
@@ -307,6 +377,7 @@ def on_off_window(row,sens_name,oid):
     on_off_wd = tk.Toplevel(root)
     on_off_wd.title("Fix window")
     on_off_wd.geometry("300x80")
+    place_window_near_mouse(on_off_wd)
 
     if row == 1:
         ch_name = str(sens_name) + '_P2.5'
@@ -357,6 +428,7 @@ def on_off_device_wd(ch_name,oid):
     on_off_wd = tk.Toplevel(root)
     on_off_wd.title("Fix window")
     on_off_wd.geometry("300x80")
+    place_window_near_mouse(on_off_wd)
 
     if oid == 'outputSwitch':
         text_name = '【ON/OFF : '+ch_name+' LV】'
@@ -387,6 +459,7 @@ def device_lv_fix_wd(ch_name):
     fix_wd = tk.Toplevel(root)
     fix_wd.title("Fix window")
     fix_wd.geometry("300x110")
+    place_window_near_mouse(fix_wd)
 
     text_name = '【Set Voltage : '+ch_name+' LV】'
     la = tk.Label(fix_wd, text=text_name,font=14)
@@ -417,6 +490,7 @@ def lv_fix_window(row,sens_name):
     fix_wd = tk.Toplevel(root)
     fix_wd.title("Fix window")
     fix_wd.geometry("300x110")
+    place_window_near_mouse(fix_wd)
 
     if row == 1:
         ch_name = str(sens_name) + '_P2.5'
@@ -458,6 +532,7 @@ def hv_fix_window(sens_name):
     fix_wd = tk.Toplevel(root)
     fix_wd.title("Fix window")
     fix_wd.geometry("300x160")
+    place_window_near_mouse(fix_wd)
 
 
     sens_name_str = str(sens_name)
@@ -495,6 +570,7 @@ def stop_task(sens_name):
         stop_wd = tk.Toplevel(root)
         stop_wd.title("Fix window")
         stop_wd.geometry("400x150")
+        place_window_near_mouse(stop_wd)
         stop_wd.configure(bg="red")
         la = tk.Label(stop_wd, text='【Interrupt button pressed】\nDo not operate until \nthe next window appears!', font=30, fg="red",bg = 'yellow')
         la.pack(anchor='center',expand=1)
@@ -928,6 +1004,52 @@ def update_all_widgets():
 
     root.after(update_time*1000, update_all_widgets)
 
+def process_changed_widgets():
+    with snmp_data_lock:
+        local_changed = set(changed_keys)
+        changed_keys.clear()
+
+    for oid, ch_number in local_changed:
+        # text widgets
+        for item in text_widget_map.get((oid, ch_number), []):
+            kind = item[0]
+
+            if kind == 'sensor':
+                _, label, row, sens_name = item
+                update_text(label, row, sens_name, oid)
+
+            elif kind == 'device':
+                _, label, ch_name = item
+                update_device_text(label, ch_name, oid)
+
+        # buttons
+        if oid == 'outputSwitch':
+            for item in button_widget_map.get(('outputSwitch', ch_number), []):
+                kind = item[0]
+
+                if kind == 'onoff_sensor':
+                    _, button, row, sens_name = item
+                    update_on_off_button(button, row, sens_name)
+
+                elif kind == 'onoff_device':
+                    _, button, ch_name = item
+                    update_on_off_device_button(button, ch_name)
+
+        elif oid == 'outputUserConfig':
+            for item in button_widget_map.get(('outputUserConfig', ch_number), []):
+                kind = item[0]
+
+                if kind == 'userconfig_sensor':
+                    _, button, row, sens_name = item
+                    update_userconfig_button(button, row, sens_name)
+
+                elif kind == 'userconfig_device':
+                    _, button, ch_name = item
+                    update_userconfig_device_button(button, ch_name)
+
+    root.after(100, process_changed_widgets)
+
+
 def update_time_fun():
     current_datetime = datetime.now()
     current_day = time.strftime("%Y/%m/%d")
@@ -996,7 +1118,8 @@ def create_frame(root, rows, columns, sens_name):
 
                 label.grid(row=0, column=0, sticky="nsew")
                 row_labels.append(label)
-                text_update_items.append(('sensor', label, row, sens_name, 'outputVoltage'))
+                ### text_update_items.append(('sensor', label, row, sens_name, 'outputVoltage'))
+                add_text_widget_binding('outputVoltage', ch_name, ('sensor',label, row, sens_name))
                 update_text(label,row,sens_name,'outputVoltage')
 
                 button.grid(row=0, column=1, sticky="nsew")
@@ -1022,7 +1145,22 @@ def create_frame(root, rows, columns, sens_name):
 
                     button.grid(row=0, column=0, sticky=tk.EW)
                     row_buttons.append(button)
-                    button_update_items.append(('onoff_sensor', button, row, sens_name))
+
+                    if row == 1:
+                        ch_name = str(sens_name) + '_P2.5'
+                    elif row == 2:
+                        ch_name = str(sens_name) + '_P2.3'
+                    elif row == 3:
+                        ch_name = str(sens_name) + '_N2.5'
+                    elif row == 4:
+                        ch_name = str(sens_name) + '_N2.3'
+                    else:
+                        ch_name = None
+                    if ch_name is not None:
+                        #button_update_items.append(('onoff_sensor', button, row, sens_name))
+                        add_button_widget_binding('outputSwitch', ch_name,
+                                                  ('onoff_sensor', button, row, sens_name))
+
                     update_on_off_button(button,row,sens_name)
 
                 if col == 5:
@@ -1044,7 +1182,12 @@ def create_frame(root, rows, columns, sens_name):
 
                     button.grid(row=0, column=0, sticky=tk.EW)
                     row_buttons.append(button)
-                    button_update_items.append(('userconfig_sensor', button, row, sens_name))
+                    ### button_update_items.append(('userconfig_sensor', button, row, sens_name))
+                    
+                    ch_name = sensor_row_to_ch_name(row, sens_name)
+                    if ch_name is not None:
+                        add_button_widget_binding('outputUserConfig', ch_name,
+                                                  ('userconfig_sensor', button, row, sens_name))
                     update_userconfig_button(button,row,sens_name)
 
 
@@ -1084,7 +1227,8 @@ def create_frame(root, rows, columns, sens_name):
                 label = tk.Label(subframe, text=label_text, bg= 'gray90')
                 label.grid(row=0, column=0, sticky="nsew")
                 row_labels.append(label)
-                text_update_items.append(('sensor', label, row, sens_name, 'outputVoltage'))
+                ### text_update_items.append(('sensor', label, row, sens_name, 'outputVoltage'))
+                add_text_widget_binding('outputVoltage', ch_name, ('sensor', label, row, sens_name))
                 update_text(label,row, sens_name, 'outputVoltage')
 
                 button_text = "Fix"
@@ -1138,7 +1282,9 @@ def create_frame(root, rows, columns, sens_name):
                     label = tk.Label(subframe, text=label_text, bg= 'gray90')
                     label.grid(sticky="nsew")
                     row_labels.append(label)
-                    text_update_items.append(('sensor', label, row, sens_name, 'outputMeasurementTerminalVoltage'))
+                    ### text_update_items.append(('sensor', label, row, sens_name, 'outputMeasurementTerminalVoltage'))
+                    ch_name = sensor_row_to_ch_name(row, sens_name)
+                    add_text_widget_binding('outputMeasurementTerminalVoltage', ch_name, ('sensor', label, row, sens_name))
                     update_text(label,row,sens_name,'outputMeasurementTerminalVoltage')
 
                 #outputMeasurementSenseVoltage
@@ -1151,7 +1297,10 @@ def create_frame(root, rows, columns, sens_name):
                     label = tk.Label(subframe, text=label_text, bg= 'gray90')
                     label.grid(sticky="nsew")
                     row_labels.append(label)
-                    text_update_items.append(('sensor', label, row, sens_name, 'outputMeasurementSenseVoltage'))
+                    ### text_update_items.append(('sensor', label, row, sens_name, 'outputMeasurementSenseVoltage'))
+                    ch_name = sensor_row_to_ch_name(row, sens_name)
+                    add_text_widget_binding('outputMeasurementSenseVoltage', ch_name,
+                                            ('sensor', label, row, sens_name))
                     update_text(label,row,sens_name,'outputMeasurementSenseVoltage')
 
                 #outputMeasurementCurrent
@@ -1164,7 +1313,9 @@ def create_frame(root, rows, columns, sens_name):
                     label = tk.Label(subframe, text=label_text, bg= 'gray90')
                     label.grid(sticky="nsew")
                     row_labels.append(label)
-                    text_update_items.append(('sensor', label, row, sens_name, 'outputMeasurementCurrent'))
+                    ### text_update_items.append(('sensor', label, row, sens_name, 'outputMeasurementCurrent'))
+                    ch_name = sensor_row_to_ch_name(row, sens_name)
+                    add_text_widget_binding('outputMeasurementCurrent', ch_name, ('sensor', label, row, sens_name))
                     update_text(label,row,sens_name,'outputMeasurementCurrent')
 
             #LV MaxTV
@@ -1177,7 +1328,9 @@ def create_frame(root, rows, columns, sens_name):
                 label = tk.Label(subframe, text=label_text, bg= 'gray90')
                 label.grid(sticky="nsew")
                 row_labels.append(label)
-                text_update_items.append(('sensor', label, row, sens_name, 'outputSupervisionMaxTerminalVoltage'))
+                ### text_update_items.append(('sensor', label, row, sens_name, 'outputSupervisionMaxTerminalVoltage'))
+                ch_name = sensor_row_to_ch_name(row, sens_name)
+                add_text_widget_binding('outputSupervisionMaxTerminalVoltage', ch_name, ('sensor', label, row, sens_name))
                 update_text(label,row,sens_name,'outputSupervisionMaxTerminalVoltage')
 
             #HV current detail botton
@@ -1249,6 +1402,21 @@ def create_frame(root, rows, columns, sens_name):
         buttons.append(row_buttons)
     return frame, labels, buttons
 
+def sensor_row_to_ch_name(row, sens_name):
+    if row == 1:
+        return str(sens_name) + '_P2.5'
+    elif row == 2:
+        return str(sens_name) + '_P2.3'
+    elif row == 3:
+        return str(sens_name) + '_N2.5'
+    elif row == 4:
+        return str(sens_name) + '_N2.3'
+    elif row == 6:
+        return str(sens_name) + '_N_HV'
+    elif row == 7:
+        return str(sens_name) + '_P_HV'
+    return None
+                                            
 def create_frame_device(root,device,device_rows,columns):
     frame = tk.Frame(root)
     labels = []
@@ -1358,7 +1526,9 @@ def create_frame_device(root,device,device_rows,columns):
                         button = tk.Button(subframe, text=button_text_onoff, command=lambda r=row: on_off_device_wd(rp_row_ch_name[r-0],'outputSwitch'), bg=button_bg_onoff )
                     button.grid(row=0, column=0, sticky=tk.EW)
                     row_buttons.append(button)
-                    button_update_items.append(('onoff_device', button, ch_name))
+                    ### button_update_items.append(('onoff_device', button, ch_name))
+                    add_button_widget_binding('outputSwitch', ch_name,
+                                              ('onoff_device', button, ch_name))
                     update_on_off_device_button(button,ch_name)
 
                 else:
@@ -1377,7 +1547,9 @@ def create_frame_device(root,device,device_rows,columns):
                         button = tk.Button(subframe, text=button_text_onoff, command=lambda r=row: on_off_device_wd(rp_row_ch_name[r],'outputUserConfig'), bg=button_bg_onoff )
                     button.grid(row=0, column=0, sticky=tk.EW)
                     row_buttons.append(button)
-                    button_update_items.append(('userconfig_device', button, ch_name))
+                    ### button_update_items.append(('userconfig_device', button, ch_name))
+                    add_button_widget_binding('outputUserConfig', ch_name,
+                                              ('userconfig_device', button, ch_name))
                     update_userconfig_device_button(button,ch_name)
 
             #LV outputVoltage
@@ -1405,7 +1577,8 @@ def create_frame_device(root,device,device_rows,columns):
                 button.grid(row=0, column=1, sticky="nsew")
                 row_labels.append(label)
                 row_buttons.append(button)
-                text_update_items.append(('device', label, ch_name, 'outputVoltage'))
+                ### text_update_items.append(('device', label, ch_name, 'outputVoltage'))
+                add_text_widget_binding('outputVoltage', ch_name, ('device', label, ch_name))
                 update_device_text(label,ch_name,'outputVoltage')
 
             #LV MaxTV
@@ -1422,7 +1595,9 @@ def create_frame_device(root,device,device_rows,columns):
                     ch_name=rp_row_ch_name[row]
                     label_text = get_value_use_all(rp_row_ch_name[row],'outputSupervisionMaxTerminalVoltage')
                 label = tk.Label(subframe, text=label_text, bg= 'gray90')
-                text_update_items.append(('device', label, ch_name, 'outputSupervisionMaxTerminalVoltage'))
+                ### text_update_items.append(('device', label, ch_name, 'outputSupervisionMaxTerminalVoltage'))
+                add_text_widget_binding('outputSupervisionMaxTerminalVoltage', ch_name,
+                                        ('device', label, ch_name))
                 update_device_text(label,ch_name,'outputSupervisionMaxTerminalVoltage')
                 label.grid(row=0, column=0, sticky="nsew")
                 row_labels.append(label)
@@ -1441,7 +1616,9 @@ def create_frame_device(root,device,device_rows,columns):
                         ch_name=rp_row_ch_name[row]
                         label_text = get_value_use_all(rp_row_ch_name[row],'outputMeasurementTerminalVoltage')
                     label = tk.Label(subframe, text=label_text, bg= 'gray90')
-                    text_update_items.append(('device', label, ch_name, 'outputMeasurementTerminalVoltage'))
+                    ### text_update_items.append(('device', label, ch_name, 'outputMeasurementTerminalVoltage'))
+                    add_text_widget_binding('outputMeasurementTerminalVoltage', ch_name,
+                                            ('device', label, ch_name))
                     update_device_text(label,ch_name,'outputMeasurementTerminalVoltage')
 
                 if col == 7:
@@ -1452,7 +1629,9 @@ def create_frame_device(root,device,device_rows,columns):
                         ch_name=rp_row_ch_name[row]
                         label_text = get_value_use_all(rp_row_ch_name[row],'outputMeasurementSenseVoltage')
                     label = tk.Label(subframe, text=label_text, bg= 'gray90')
-                    text_update_items.append(('device', label, ch_name, 'outputMeasurementSenseVoltage'))
+                    ### text_update_items.append(('device', label, ch_name, 'outputMeasurementSenseVoltage'))
+                    add_text_widget_binding('outputMeasurementSenseVoltage', ch_name,
+                                            ('device', label, ch_name))
                     update_device_text(label,ch_name,'outputMeasurementSenseVoltage')
 
                 if col == 8:
@@ -1463,7 +1642,9 @@ def create_frame_device(root,device,device_rows,columns):
                         ch_name=rp_row_ch_name[row]
                         label_text = get_value_use_all(rp_row_ch_name[row],'outputMeasurementCurrent')
                     label = tk.Label(subframe, text=label_text, bg= 'gray90')
-                    text_update_items.append(('device', label, ch_name, 'outputMeasurementCurrent'))
+                    ### text_update_items.append(('device', label, ch_name, 'outputMeasurementCurrent'))
+                    add_text_widget_binding('outputMeasurementCurrent', ch_name,
+                                            ('device', label, ch_name))
                     update_device_text(label,ch_name,'outputMeasurementCurrent')
 
                 label.grid(row=0, column=0, sticky="nsew")
@@ -1510,6 +1691,25 @@ def create_gui(root_frame):
             n_sens+=1
         frame_grid.append(row_frames)
 
+
+def place_window_near_mouse(window, dx=20, dy=20):
+    root.update_idletasks()
+
+    x = root.winfo_pointerx() + dx
+    y = root.winfo_pointery() + dy
+
+    screen_w = root.winfo_screenwidth()
+    screen_h = root.winfo_screenheight()
+
+    win_w = window.winfo_reqwidth()
+    win_h = window.winfo_reqheight()
+
+    if x + win_w > screen_w:
+        x = max(0, screen_w - win_w)
+    if y + win_h > screen_h:
+        y = max(0, screen_h - win_h)
+
+    window.geometry(f"+{x}+{y}")
 
 if __name__ == "__main__":
     '''root = tk.Tk()
@@ -1561,9 +1761,15 @@ if __name__ == "__main__":
 
     scrollbar = tk.Scrollbar(canvas, orient=tk.VERTICAL, command=canvas.yview)
 
-    snmp_walk_all()
+    #snmp_walk_all()
+    
     create_gui(frame)
-    update_all_widgets()
+
+    worker = threading.Thread(target=snmp_walk_all_worker, daemon=True)
+    worker.start()
+
+    process_changed_widgets()
+    #update_all_widgets()
 
     canvas.configure(scrollregion=(0, 0, f"{window_width}", 1600))
     canvas.configure(yscrollcommand=scrollbar.set)
@@ -1573,3 +1779,4 @@ if __name__ == "__main__":
     canvas.create_window((0,0), window=frame, anchor="nw", width=f"{window_width}", height=1600)
 
     root.mainloop()
+
