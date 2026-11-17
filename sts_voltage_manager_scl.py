@@ -1,5 +1,6 @@
 #!/usr/bin/python3
 import threading
+import math
 import copy
 import subprocess
 import time
@@ -8,7 +9,7 @@ from datetime import datetime
 import sys
 
 import tkinter as tk
-from tkinter import simpledialog
+from tkinter import simpledialog, messagebox
 from tkinter import font
 import tkinter.ttk as ttk
 
@@ -448,6 +449,28 @@ def on_off_device_wd(ch_name,oid):
 #    on_off_wd.mainloop()
 
 #Low VOLTAGE#####################################################################################################################################################
+def max_terminal_voltage_window(ch_name):
+    ch_number = name_to_number.get(ch_name)
+    if ch_number is None:
+        messagebox.showerror("Set MaxTV", f"Unknown channel: {ch_name}", parent=root)
+        return
+
+    voltage = simpledialog.askfloat(
+        "Set MaxTV",
+        f"{ch_name} ({ch_number})\nMax terminal voltage [V]:",
+        initialvalue=float(get_value_use_all(ch_name, 'outputSupervisionMaxTerminalVoltage')),
+        minvalue=0.0,
+        parent=root,
+    )
+    if voltage is None:
+        return
+    if not math.isfinite(voltage):
+        messagebox.showerror("Set MaxTV", "Enter a finite voltage.", parent=root)
+        return
+
+    snmp_set('outputSupervisionMaxTerminalVoltage', str(voltage), ch_number)
+
+
 def device_lv_fix_wd(ch_name):
     def enter_button_click():
         voltage = voltage_set.get()
@@ -1334,6 +1357,8 @@ def create_frame(root, rows, columns, sens_name):
                 row_labels.append(label)
                 ### text_update_items.append(('sensor', label, row, sens_name, 'outputSupervisionMaxTerminalVoltage'))
                 ch_name = sensor_row_to_ch_name(row, sens_name)
+                label.configure(cursor="hand2")
+                label.bind("<Button-1>", lambda event, channel=ch_name: max_terminal_voltage_window(channel))
                 add_text_widget_binding('outputSupervisionMaxTerminalVoltage', ch_name, ('sensor', label, row, sens_name))
                 update_text(label,row,sens_name,'outputSupervisionMaxTerminalVoltage')
 
@@ -1600,6 +1625,8 @@ def create_frame_device(root,device,device_rows,columns):
                     label_text = get_value_use_all(rp_row_ch_name[row],'outputSupervisionMaxTerminalVoltage')
                 label = tk.Label(subframe, text=label_text, bg= 'gray90')
                 ### text_update_items.append(('device', label, ch_name, 'outputSupervisionMaxTerminalVoltage'))
+                label.configure(cursor="hand2")
+                label.bind("<Button-1>", lambda event, channel=ch_name: max_terminal_voltage_window(channel))
                 add_text_widget_binding('outputSupervisionMaxTerminalVoltage', ch_name,
                                         ('device', label, ch_name))
                 update_device_text(label,ch_name,'outputSupervisionMaxTerminalVoltage')
