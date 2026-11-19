@@ -635,7 +635,7 @@ def read_graph_currents(p_channel, n_channel, results, stopped):
         results.put_nowait(result)
 
 
-def hv_current_graph(sens_name):
+def hv_current_graph(sens_name, stop_ramp=None):
     p_HVch_number, n_HVch_number = search_HVch_number(sens_name)
     graph_wd = tk.Toplevel(root)
     graph_wd.title("HV_Current_Graph")
@@ -744,7 +744,10 @@ def hv_current_graph(sens_name):
     graph_wd.bind("<Destroy>", on_destroy, add="+")
     controls = ttk.Frame(graph_wd, name="controls")
     controls.grid(row=2, column=0, pady=4)
-    stop_button = tk.Button(controls, text="Stop", command=stop_update)
+    if stop_ramp is None:
+        stop_button = tk.Button(controls, text="Stop Plot", command=stop_update)
+    else:
+        stop_button = tk.Button(controls, text="Stop Ramp", command=stop_ramp)
     stop_button.pack(side="left")
 
     refresh()
@@ -807,7 +810,6 @@ def start_ramp(sensor, direction, time_int, voltage_int, vol_from, vol_to):
     results = queue.Queue(maxsize=1)
     interrupted = False
     next_step_id = None
-    graph = hv_current_graph(sensor)
 
     def close_graph():
         if graph.winfo_exists():
@@ -859,6 +861,12 @@ def start_ramp(sensor, direction, time_int, voltage_int, vol_from, vol_to):
             results.put(str(exc))
         root.after(50, poll_step, started)
 
+    def stop_from_plot():
+        # A completed plot may still be open when this sensor starts a new ramp.
+        if active_ramps.get(sensor) is interrupt:
+            stop_task(sensor)
+
+    graph = hv_current_graph(sensor, stop_ramp=stop_from_plot)
     active_ramps[sensor] = interrupt
     begin_step()
     return True
