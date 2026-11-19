@@ -883,6 +883,12 @@ def start_ramp(sensor, direction, time_int, voltage_int, vol_from, vol_to):
     return True
 
 
+def stop_marked_ramps():
+    for sensor, marked in marked_sensors.items():
+        if marked.get() and sensor in active_ramps:
+            stop_task(sensor)
+
+
 def ramp_marked_sensors(direction):
     sensors = [sensor for sensor, mark in marked_sensors.items() if mark.get()]
     if not sensors:
@@ -1932,18 +1938,20 @@ if __name__ == "__main__":
     canvas.configure(scrollregion=(0, 0, f"{window_width}", 1600))
     canvas.configure(yscrollcommand=scrollbar.set)
 
-    max_tv_permission_button = tk.Button(
-        root, text="MaxTV変更許可（危険）", command=toggle_max_tv_edit,
-        bg="gray80", fg="black",
-    )
-    max_tv_permission_button.pack(side=tk.BOTTOM, fill=tk.X, padx=5, pady=5)
-
     marked_controls = ttk.Frame(root)
-    marked_controls.pack(side=tk.BOTTOM, pady=3)
+    marked_controls.pack(side=tk.BOTTOM, fill=tk.X, padx=5, pady=5)
     ttk.Button(marked_controls, text="All marked HV up",
                command=lambda: ramp_marked_sensors("RampUp")).pack(side=tk.LEFT, padx=4)
     ttk.Button(marked_controls, text="All marked HV down",
                command=lambda: ramp_marked_sensors("RampDown")).pack(side=tk.LEFT, padx=4)
+    ttk.Button(marked_controls, text="All marked HV stop",
+               command=stop_marked_ramps).pack(side=tk.LEFT, padx=4)
+
+    max_tv_permission_button = tk.Button(
+        marked_controls, text="MaxTV変更許可（危険）", command=toggle_max_tv_edit,
+        bg="gray80", fg="black",
+    )
+    max_tv_permission_button.pack(side=tk.RIGHT)
 
     scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
     canvas.pack(expand=True, fill=tk.BOTH)
