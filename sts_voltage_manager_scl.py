@@ -605,12 +605,16 @@ def hv_fix_window(sens_name):
 def click_close():
     pass
 
+ramp_stop_windows = {}
+
+
 def stop_task(sens_name):
     global by_sensor_ramptask_running
 
     ramp_task_run_index = hv_sensor_index(sens_name)
     if by_sensor_ramptask_running[ramp_task_run_index]:
         stop_wd = tk.Toplevel(root)
+        ramp_stop_windows[sens_name] = stop_wd
         stop_wd.title("Fix window")
         stop_wd.geometry("400x150")
         place_window_near_mouse(stop_wd)
@@ -766,8 +770,27 @@ def hv_current_graph(sens_name):
     stop_button.pack()
 
     refresh()
+    return graph_wd
 
 #######################################################
+def show_ramp_result(sensor, message, close_graph):
+    stop_window = ramp_stop_windows.pop(sensor, None)
+    dialog = tk.Toplevel(root)
+    dialog.title(f"{sensor} HV")
+    dialog.geometry("300x100")
+    dialog.configure(bg="deep sky blue")
+
+    def dismiss():
+        close_graph()
+        if stop_window is not None and stop_window.winfo_exists():
+            stop_window.destroy()
+        dialog.destroy()
+
+    tk.Label(dialog, text=message, font=20, bg="deep sky blue").pack(anchor="center", expand=True)
+    ttk.Button(dialog, text="OK", command=dismiss).pack()
+    dialog.protocol("WM_DELETE_WINDOW", dismiss)
+
+
 def rampup(sens_name, time_int, voltage_int, vol_from, vol_to):
     p_HVch_number, n_HVch_number = search_HVch_number(sens_name)
     volt_int = float(voltage_int)
@@ -775,6 +798,12 @@ def rampup(sens_name, time_int, voltage_int, vol_from, vol_to):
     voltage_from = float(vol_from)
     voltage_to = float(vol_to)
     start_voltage = voltage_from+volt_int
+
+    graph_window = None
+
+    def close_graph():
+        if graph_window is not None and graph_window.winfo_exists():
+            graph_window.destroy()
 
     def ramp_up():
         global by_sensor_ramptask_running
@@ -792,36 +821,13 @@ def rampup(sens_name, time_int, voltage_int, vol_from, vol_to):
                 snmp_hvset(vol_to, p_HVch_number)
                 snmp_hvset(vol_to, n_HVch_number)
                 by_sensor_ramptask_running[ramp_task_run_index] = False
-                def enter_click():
-                    for window in root.winfo_children():
-                        if window.winfo_class() == "Toplevel":
-                            window.destroy()
-                res_wd = tk.Toplevel(root)
-                res_wd.title("confirmation")
-                res_wd.geometry("300x100")
-                res_wd.configure(bg="deep sky blue")
-                la = tk.Label(res_wd, text='RampUp is complete!', font=20, bg='deep sky blue')
-                la.pack(anchor='center', expand=1)
-                bt = ttk.Button(res_wd, text='OK', command=enter_click)
-                bt.pack()
-#                res_wd.mainloop()
+                show_ramp_result(sens_name, "RampUp is complete!", close_graph)
         else:
             by_sensor_ramptask_running[ramp_task_run_index] = False
-            def enter_click():
-                for window in root.winfo_children():
-                    if window.winfo_class() == "Toplevel":
-                        window.destroy()
-            res_wd = tk.Toplevel(root)
-            res_wd.title("confirmation")
-            res_wd.geometry("300x100")
-            res_wd.configure(bg="deep sky blue")
-            la = tk.Label(res_wd, text='RampUp successfully interrupted', font=20, bg='deep sky blue')
-            la.pack(anchor='center', expand=1)
-            bt = ttk.Button(res_wd, text='OK', command=enter_click)
-            bt.pack()
-#            res_wd.mainloop()
+            show_ramp_result(sens_name, "RampUp successfully interrupted", close_graph)
 
     ramp_up()
+    graph_window = hv_current_graph(sens_name)
 
 def rampup_window(sens_name):
     def enter_button_click():
@@ -834,7 +840,6 @@ def rampup_window(sens_name):
         vol_to = voltage_to.get()
         ramp_wd.destroy()
         rampup(sens_name, ti_int, vol_int, vol_from, vol_to)
-        hv_current_graph(sens_name)
 
     ramp_wd = tk.Toplevel(root)
     ramp_wd.title("RampUp window")
@@ -896,6 +901,12 @@ def rampdown(sens_name_dn, time_int_dn, voltage_int_dn, vol_from_dn, vol_to_dn):
     voltage_to_dn = float(vol_to_dn)
     start_voltage_dn = voltage_from_dn-volt_int_dn
 
+    graph_window = None
+
+    def close_graph():
+        if graph_window is not None and graph_window.winfo_exists():
+            graph_window.destroy()
+
     def ramp_down():
         global by_sensor_ramptask_running
         nonlocal start_voltage_dn
@@ -912,35 +923,12 @@ def rampdown(sens_name_dn, time_int_dn, voltage_int_dn, vol_from_dn, vol_to_dn):
                 snmp_hvset(vol_to_dn, p_HVch_number_dn)
                 snmp_hvset(vol_to_dn, n_HVch_number_dn)
                 by_sensor_ramptask_running[ramp_task_run_index] = False
-                def enter_click():
-                    for window in root.winfo_children():
-                        if window.winfo_class() == "Toplevel":
-                            window.destroy()
-                res_wd = tk.Toplevel(root)
-                res_wd.title("comfirm")
-                res_wd.geometry("300x100")
-                res_wd.configure(bg="deep sky blue")
-                la = tk.Label(res_wd, text='RampDown is complete!', font=20, bg='deep sky blue')
-                la.pack(anchor='center',expand=1)
-                bt = ttk.Button(res_wd, text='OK', command=enter_click)
-                bt.pack()
-#                res_wd.mainloop()
+                show_ramp_result(sens_name_dn, "RampDown is complete!", close_graph)
         else:
             by_sensor_ramptask_running[ramp_task_run_index] = False
-            def enter_click():
-                for window in root.winfo_children():
-                    if window.winfo_class() == "Toplevel":
-                        window.destroy()
-            res_wd = tk.Toplevel(root)
-            res_wd.title("comfirm")
-            res_wd.geometry("300x100")
-            res_wd.configure(bg="deep sky blue")
-            la = tk.Label(res_wd, text='RampDown successfully interrupted', font=20, bg='deep sky blue')
-            la.pack(anchor='center',expand=1)
-            bt = ttk.Button(res_wd, text='OK', command=enter_click)
-            bt.pack()
-#            res_wd.mainloop()
+            show_ramp_result(sens_name_dn, "RampDown successfully interrupted", close_graph)
     ramp_down()
+    graph_window = hv_current_graph(sens_name_dn)
 
 def rampdown_window(sens_name):
     def enter_button_click():
@@ -953,7 +941,6 @@ def rampdown_window(sens_name):
         vol_to = voltage_to.get()
         ramp_wd.destroy()
         rampdown(sens_name, ti_int, vol_int, vol_from, vol_to)
-        hv_current_graph(sens_name)
 
     ramp_wd = tk.Toplevel(root)
     ramp_wd.title("RampDown window")
