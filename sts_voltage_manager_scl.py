@@ -1,4 +1,6 @@
 #!/usr/bin/python3
+import csv
+from pathlib import Path
 import threading
 import queue
 import math
@@ -121,10 +123,37 @@ name_to_number = {v: k for k, v in number_to_name.items()}
 # Only Tk callbacks read or modify this per-sensor registry.
 active_ramps = {}
 DEFAULT_HV_RAMP_UP_TARGET = '75'
+default_marks = set()
 marked_sensors = {}
 marked_lv_sides = {}
 marked_lv_buttons = []
 hv_target_labels = {}
+
+
+def load_default_marks(path):
+    """Read the startup selection; missing sensors and missing files default to off."""
+    fields = ["sensor", "HV", "P", "N"]
+    marked = set()
+    seen = set()
+    try:
+        with path.open(encoding="utf-8-sig", newline="") as stream:
+            rows = csv.reader(stream, strict=True)
+            if next(rows, None) != fields:
+                raise ValueError("Expected CSV header: sensor,HV,P,N")
+            for row in rows:
+                if not row:
+                    continue
+                row = [value.strip() for value in row]
+                if len(row) != 4 or not row[0] or any(v not in ("0", "1") for v in row[1:]):
+                    raise ValueError(f"Line {rows.line_num}: expected a sensor and three 0/1 values.")
+                sensor = row[0]
+                if sensor in seen:
+                    raise ValueError(f"Line {rows.line_num}: duplicate sensor {sensor}.")
+                seen.add(sensor)
+                marked.update((sensor, field) for field, value in zip(fields[1:], row[1:]) if value == "1")
+    except FileNotFoundError:
+        return set()
+    return marked
 
 
 def hv_target_text(sensor):
@@ -1389,7 +1418,7 @@ def create_frame(root, rows, columns, sens_name):
                 cell.grid(row=row, column=col, rowspan=rows-1, sticky="nsew")
                 group = tk.Frame(cell, bg="gray70")
                 group.pack(expand=True)
-                mark = tk.BooleanVar(master=cell, value=False)
+                mark = tk.BooleanVar(master=cell, value=(sens_name, "HV") in default_marks)
                 marked_sensors[sens_name] = mark
                 tk.Checkbutton(group, variable=mark, bg="gray70").pack()
                 label = tk.Label(group, text=label_text, bg="gray70")
@@ -1411,7 +1440,7 @@ def create_frame(root, rows, columns, sens_name):
 
                 if row in (1, 3):
                     side = "P" if row == 1 else "N"
-                    mark = tk.BooleanVar(master=frame, value=False)
+                    mark = tk.BooleanVar(master=frame, value=(sens_name, side) in default_marks)
                     marked_lv_sides[sens_name, side] = mark
                     cell = tk.Frame(frame, bg=bg_color, borderwidth=1, relief="solid")
                     cell.grid(row=row, column=col, sticky="nsew")
@@ -2006,8 +2035,12 @@ if __name__ == "__main__":
 
     scrollbar = tk.Scrollbar(canvas, orient=tk.VERTICAL, command=canvas.yview)
 
-    #snmp_walk_all()
-    
+    marks_path = Path(__file__).resolve().with_name("checkbox_defaults.csv")
+    try:
+        default_marks = load_default_marks(marks_path)
+    except (OSError, ValueError, csv.Error) as exc:
+        messagebox.showwarning("Checkbox defaults", f"{marks_path.name}: {exc}\nStarting with all boxes unchecked.", parent=root)
+
     create_gui(frame)
 
     worker = threading.Thread(target=snmp_walk_all_worker, daemon=True)
