@@ -1174,28 +1174,29 @@ def create_frame(root, rows, columns, sens_name):
         row_buttons = []
 
         for col in range(columns):
+            # Each spanning cell needs only one widget at its grid position.
+            if col == 0 and row > 1:
+                continue
+            if row == 7 and col in (3, 4):
+                continue
+            if row == 6 and col == 1:
+                # The shared HV setpoint displays the P-side value (row 7).
+                continue
+
             #Sensor name
             if row >= 1 and col == 0:
-                merged_frame = tk.Frame(frame, borderwidth=1, relief="solid")
-                merged_frame.grid(row=1, column=0, rowspan=rows-1, sticky="nsew")
-                merged_frame.grid_columnconfigure(0, weight=1)
-                merged_frame.grid_rowconfigure(0, weight=1)
 
                 label_text = f"{sens_name}"
                 lv_channel = name_to_number.get(f"{sens_name}_P2.5", "")
                 if lv_channel.startswith("u") and lv_channel[1:].isdigit():
                     crate_number = int(lv_channel[1:]) // 100
                     label_text += f"\n(c{crate_number})"
-                label = tk.Label(merged_frame, text=label_text, bg='gray70')
-                label.grid(sticky="nsew")
+                label = tk.Label(frame, borderwidth=1, relief="solid", text=label_text, bg='gray70')
+                label.grid(row=row, column=col, rowspan=rows-1, sticky="nsew")
                 row_labels.append(label)
 
             #LV name
             elif row > 0 and row < 5 and col == 1:
-                subframe = tk.Frame(frame, borderwidth=1, relief="solid")
-                subframe.grid(row=row, column=col, sticky="nsew")
-                subframe.grid_columnconfigure(0, weight=1)
-                subframe.grid_rowconfigure(0, weight=1)
                 bg_color = 'gray70'
 
                 if row == 1:
@@ -1207,8 +1208,8 @@ def create_frame(root, rows, columns, sens_name):
                 elif row == 4:
                     label_text = 'N 1.2V'
 
-                label = tk.Label(subframe, text=label_text, bg=bg_color)
-                label.grid(sticky="nsew")
+                label = tk.Label(frame, borderwidth=1, relief="solid", text=label_text, bg=bg_color)
+                label.grid(row=row, column=col, sticky="nsew")
                 row_labels.append(label)
 
             #HV outputVoltage
@@ -1228,6 +1229,7 @@ def create_frame(root, rows, columns, sens_name):
                 label.grid(row=0, column=0, sticky="nsew")
                 row_labels.append(label)
                 ### text_update_items.append(('sensor', label, row, sens_name, 'outputVoltage'))
+                ch_name = sensor_row_to_ch_name(row, sens_name)
                 add_text_widget_binding('outputVoltage', ch_name, ('sensor',label, row, sens_name))
                 update_text(label,row,sens_name,'outputVoltage')
 
@@ -1366,30 +1368,22 @@ def create_frame(root, rows, columns, sens_name):
 
             #HV NorP
             elif row > 5 and col == 5:
-                subframe = tk.Frame(frame, borderwidth=1, relief="solid")
-                subframe.grid(row=row, column=col, sticky="nsew")
-                subframe.grid_columnconfigure(0, weight=1)
-                subframe.grid_rowconfigure(0, weight=1)
 
                 if row == 6:
                     label_text = "N(+)"
                 else:
                     label_text = "P(-)"
-                label = tk.Label(subframe, text=label_text, bg= 'gray70')
-                label.grid(sticky="nsew")
+                label = tk.Label(frame, borderwidth=1, relief="solid", text=label_text, bg= 'gray70')
+                label.grid(row=row, column=col, sticky="nsew")
                 row_labels.append(label)
 
             #LV/HV measurement
             elif row != 0 and row != 5 and (col == 6 or col == 7 or col == 8):
                 #outputMeasurementTerminalVoltage
                 if col == 6:
-                    subframe = tk.Frame(frame, borderwidth=1, relief="solid")
-                    subframe.grid(row=row, column=col, sticky="nsew")
-                    subframe.grid_columnconfigure(0, weight=1)
-                    subframe.grid_rowconfigure(0, weight=1)
                     label_text = '0'
-                    label = tk.Label(subframe, text=label_text, bg= 'gray90')
-                    label.grid(sticky="nsew")
+                    label = tk.Label(frame, borderwidth=1, relief="solid", text=label_text, bg= 'gray90')
+                    label.grid(row=row, column=col, sticky="nsew")
                     row_labels.append(label)
                     ### text_update_items.append(('sensor', label, row, sens_name, 'outputMeasurementTerminalVoltage'))
                     ch_name = sensor_row_to_ch_name(row, sens_name)
@@ -1398,13 +1392,9 @@ def create_frame(root, rows, columns, sens_name):
 
                 #outputMeasurementSenseVoltage
                 if col == 7:
-                    subframe = tk.Frame(frame, borderwidth=1, relief="solid")
-                    subframe.grid(row=row, column=col, sticky="nsew")
-                    subframe.grid_columnconfigure(0, weight=1)
-                    subframe.grid_rowconfigure(0, weight=1)
                     label_text = '0'
-                    label = tk.Label(subframe, text=label_text, bg= 'gray90')
-                    label.grid(sticky="nsew")
+                    label = tk.Label(frame, borderwidth=1, relief="solid", text=label_text, bg= 'gray90')
+                    label.grid(row=row, column=col, sticky="nsew")
                     row_labels.append(label)
                     ### text_update_items.append(('sensor', label, row, sens_name, 'outputMeasurementSenseVoltage'))
                     ch_name = sensor_row_to_ch_name(row, sens_name)
@@ -1414,13 +1404,9 @@ def create_frame(root, rows, columns, sens_name):
 
                 #outputMeasurementCurrent
                 if col == 8:
-                    subframe = tk.Frame(frame, borderwidth=1, relief="solid")
-                    subframe.grid(row=row, column=col, sticky="nsew")
-                    subframe.grid_columnconfigure(0, weight=1)
-                    subframe.grid_rowconfigure(0, weight=1)
                     label_text = '0'
-                    label = tk.Label(subframe, text=label_text, bg= 'gray90')
-                    label.grid(sticky="nsew")
+                    label = tk.Label(frame, borderwidth=1, relief="solid", text=label_text, bg= 'gray90')
+                    label.grid(row=row, column=col, sticky="nsew")
                     row_labels.append(label)
                     ### text_update_items.append(('sensor', label, row, sens_name, 'outputMeasurementCurrent'))
                     ch_name = sensor_row_to_ch_name(row, sens_name)
@@ -1429,13 +1415,9 @@ def create_frame(root, rows, columns, sens_name):
 
             #LV MaxTV
             elif row != 0 and row != 5 and row != 6 and row != 7 and col == 4:
-                subframe = tk.Frame(frame, borderwidth=1, relief="solid")
-                subframe.grid(row=row, column=col, sticky="nsew")
-                subframe.grid_columnconfigure(0, weight=1)
-                subframe.grid_rowconfigure(0, weight=1)
                 label_text = '0'
-                label = tk.Label(subframe, text=label_text, bg= 'gray90')
-                label.grid(sticky="nsew")
+                label = tk.Label(frame, borderwidth=1, relief="solid", text=label_text, bg= 'gray90')
+                label.grid(row=row, column=col, sticky="nsew")
                 row_labels.append(label)
                 ### text_update_items.append(('sensor', label, row, sens_name, 'outputSupervisionMaxTerminalVoltage'))
                 ch_name = sensor_row_to_ch_name(row, sens_name)
@@ -1458,10 +1440,6 @@ def create_frame(root, rows, columns, sens_name):
 
             else:
                 # Other frames
-                subframe = tk.Frame(frame, borderwidth=1, relief="solid")
-                subframe.grid(row=row, column=col, sticky="nsew")
-                subframe.grid_columnconfigure(0, weight=1)
-                subframe.grid_rowconfigure(0, weight=1)
 
                 if row == 0:
                     bg_color = 'gray70'
@@ -1505,8 +1483,8 @@ def create_frame(root, rows, columns, sens_name):
                     bg_color = 'gray90'
                     label_text = '0'
 
-                label = tk.Label(subframe, text=label_text, bg=bg_color)
-                label.grid(sticky="nsew")
+                label = tk.Label(frame, borderwidth=1, relief="solid", text=label_text, bg=bg_color)
+                label.grid(row=row, column=col, sticky="nsew")
                 row_labels.append(label)
 
         labels.append(row_labels)
@@ -1564,10 +1542,6 @@ def create_frame_device(root,device,device_rows,columns):
 
             #Device initial
             if row == 0 and col != 0:
-                subframe = tk.Frame(frame, borderwidth=1, relief="solid")
-                subframe.grid(row=row, column=col, sticky="nsew")
-                subframe.grid_columnconfigure(0, weight=1)
-                subframe.grid_rowconfigure(0, weight=1)
 
                 bg_color = 'gray70'
                 if col == 1:
@@ -1587,27 +1561,21 @@ def create_frame_device(root,device,device_rows,columns):
                 elif col == 8:
                     label_text = "Imeas [A]"
 
-                label = tk.Label(subframe, text=label_text, bg=bg_color)
-                label.grid(sticky="nsew")
+                label = tk.Label(frame, borderwidth=1, relief="solid", text=label_text, bg=bg_color)
+                label.grid(row=row, column=col, sticky="nsew")
                 row_labels.append(label)
 
             elif row >= 0 and col == 0:
-                merged_frame = tk.Frame(frame, borderwidth=1, relief="solid")
-                merged_frame.grid(row=0, column=0, rowspan=device_rows, sticky="nsew")
-                merged_frame.grid_columnconfigure(0, weight=1)
-                merged_frame.grid_rowconfigure(0, weight=1)
+                if row > 0:
+                    continue
 
                 label_text = device
-                label = tk.Label(merged_frame, text=label_text, bg='gray70')
-                label.grid(sticky="nsew")
+                label = tk.Label(frame, borderwidth=1, relief="solid", text=label_text, bg='gray70')
+                label.grid(row=row, column=col, rowspan=device_rows, sticky="nsew")
                 row_labels.append(label)
 
             #Sensor name
             elif col == 1:
-                subframe = tk.Frame(frame, borderwidth=1, relief="solid")
-                subframe.grid(row=row, column=col, sticky="nsew")
-                subframe.grid_columnconfigure(0, weight=1)
-                subframe.grid_rowconfigure(0, weight=1)
                 bg_color = 'gray70'
 
                 if device == 'GBT':
@@ -1615,8 +1583,8 @@ def create_frame_device(root,device,device_rows,columns):
                 else:
                     label_text = rp_row_sens[row]
 
-                label = tk.Label(subframe, text=label_text, bg=bg_color)
-                label.grid(sticky="nsew")
+                label = tk.Label(frame, borderwidth=1, relief="solid", text=label_text, bg=bg_color)
+                label.grid(row=row, column=col, sticky="nsew")
                 row_labels.append(label)
 
             #LV Power & UserConfig
@@ -1694,10 +1662,6 @@ def create_frame_device(root,device,device_rows,columns):
 
             #LV MaxTV
             elif col == 4:
-                subframe = tk.Frame(frame, borderwidth=1, relief="solid")
-                subframe.grid(row=row, column=col, sticky="nsew")
-                subframe.grid_columnconfigure(0, weight=1)
-                subframe.grid_rowconfigure(0, weight=1)
 
                 if device == 'GBT':
                     ch_name=gbt_row_ch_name[row]
@@ -1705,21 +1669,17 @@ def create_frame_device(root,device,device_rows,columns):
                 else:
                     ch_name=rp_row_ch_name[row]
                     label_text = get_value_use_all(rp_row_ch_name[row],'outputSupervisionMaxTerminalVoltage')
-                label = tk.Label(subframe, text=label_text, bg= 'gray90')
+                label = tk.Label(frame, borderwidth=1, relief="solid", text=label_text, bg= 'gray90')
                 ### text_update_items.append(('device', label, ch_name, 'outputSupervisionMaxTerminalVoltage'))
                 max_tv_labels.append(label)
                 label.bind("<Button-1>", lambda event, channel=ch_name: max_terminal_voltage_window(channel))
                 add_text_widget_binding('outputSupervisionMaxTerminalVoltage', ch_name,
                                         ('device', label, ch_name))
                 update_device_text(label,ch_name,'outputSupervisionMaxTerminalVoltage')
-                label.grid(row=0, column=0, sticky="nsew")
+                label.grid(row=row, column=col, sticky="nsew")
                 row_labels.append(label)
 
             else:
-                subframe = tk.Frame(frame, borderwidth=1, relief="solid")
-                subframe.grid(row=row, column=col, sticky="nsew")
-                subframe.grid_columnconfigure(0, weight=1)
-                subframe.grid_rowconfigure(0, weight=1)
 
                 if col == 6:
                     if device == 'GBT':
@@ -1728,7 +1688,7 @@ def create_frame_device(root,device,device_rows,columns):
                     else:
                         ch_name=rp_row_ch_name[row]
                         label_text = get_value_use_all(rp_row_ch_name[row],'outputMeasurementTerminalVoltage')
-                    label = tk.Label(subframe, text=label_text, bg= 'gray90')
+                    label = tk.Label(frame, borderwidth=1, relief="solid", text=label_text, bg= 'gray90')
                     ### text_update_items.append(('device', label, ch_name, 'outputMeasurementTerminalVoltage'))
                     add_text_widget_binding('outputMeasurementTerminalVoltage', ch_name,
                                             ('device', label, ch_name))
@@ -1741,7 +1701,7 @@ def create_frame_device(root,device,device_rows,columns):
                     else:
                         ch_name=rp_row_ch_name[row]
                         label_text = get_value_use_all(rp_row_ch_name[row],'outputMeasurementSenseVoltage')
-                    label = tk.Label(subframe, text=label_text, bg= 'gray90')
+                    label = tk.Label(frame, borderwidth=1, relief="solid", text=label_text, bg= 'gray90')
                     ### text_update_items.append(('device', label, ch_name, 'outputMeasurementSenseVoltage'))
                     add_text_widget_binding('outputMeasurementSenseVoltage', ch_name,
                                             ('device', label, ch_name))
@@ -1754,13 +1714,13 @@ def create_frame_device(root,device,device_rows,columns):
                     else:
                         ch_name=rp_row_ch_name[row]
                         label_text = get_value_use_all(rp_row_ch_name[row],'outputMeasurementCurrent')
-                    label = tk.Label(subframe, text=label_text, bg= 'gray90')
+                    label = tk.Label(frame, borderwidth=1, relief="solid", text=label_text, bg= 'gray90')
                     ### text_update_items.append(('device', label, ch_name, 'outputMeasurementCurrent'))
                     add_text_widget_binding('outputMeasurementCurrent', ch_name,
                                             ('device', label, ch_name))
                     update_device_text(label,ch_name,'outputMeasurementCurrent')
 
-                label.grid(row=0, column=0, sticky="nsew")
+                label.grid(row=row, column=col, sticky="nsew")
                 row_labels.append(label)
 
         labels.append(row_labels)
