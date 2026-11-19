@@ -643,41 +643,6 @@ def get_hv_currents(p_HVch_number, n_HVch_number):
     current_n = snmpwalk_hv_current(n_HVch_number)
     return current_p, current_n
 
-def update_graph(current_p, current_n, p_side_currents, n_side_currents, canvas, fig, ax):
-    p_side_currents.append(current_p)
-    n_side_currents.append(current_n)
-
-    del p_side_currents[:-30]
-    del n_side_currents[:-30]
-
-    ax.clear()
-    ax.axhline(y=0, color='gray', linestyle='--')
-    ax.plot(p_side_currents, label='P-side Current')
-    ax.plot(n_side_currents, label='N-side Current')
-
-    # 図全体のレイアウトを調整（ここではサンプルとしてのみ示す）
-    fig.subplots_adjust(right=0.85)
-
-    # Y軸の最大値と最小値を設定
-    all_currents = p_side_currents + n_side_currents  # 両方のリストを結合
-    if all_currents:  # リストが空でない場合にのみ計算
-        max_current = max(all_currents)
-        min_current = min(all_currents)
-        margin = (max_current - min_current) * 0.1  # 上下に少し余裕を持たせる
-        ax.set_ylim(min_current - margin, max_current + margin)
-
-    ax.set_xlabel('Time [s]')
-    ax.set_ylabel('Current [µA]')
-
-
-    if p_side_currents:
-        ax.text(len(p_side_currents) - 1, p_side_currents[-1], f'{p_side_currents[-1]:.2f}', color='blue')
-    if n_side_currents:
-        ax.text(len(n_side_currents) - 1, n_side_currents[-1], f'{n_side_currents[-1]:.2f}', color='orange')
-
-    ax.legend(loc='upper left', bbox_to_anchor=(1, 1))
-    canvas.draw()
-
 def read_graph_currents(p_channel, n_channel, results, stopped):
     # Worker thread: never access Tk or Matplotlib objects here.
     try:
@@ -710,6 +675,15 @@ def hv_current_graph(sens_name):
     fig = Figure(figsize=(15, 5), dpi=100)
     ax = fig.add_subplot(111)
     fig.text(0.5, 0.93, f'{sens_name}_HV', ha='center', transform=fig.transFigure, fontsize=12, color='green')
+    fig.subplots_adjust(right=0.85)
+    ax.set_xlabel('Time [s]')
+    ax.set_ylabel('Current [µA]')
+    ax.axhline(y=0, color='gray', linestyle='--')
+    p_line, = ax.plot([], [], label='P-side Current')
+    n_line, = ax.plot([], [], label='N-side Current')
+    p_label = ax.text(0, 0, '', color='blue')
+    n_label = ax.text(0, 0, '', color='orange')
+    ax.legend(loc='upper left', bbox_to_anchor=(1, 1))
     canvas = FigureCanvasTkAgg(fig, master=graph_wd)
     widget = canvas.get_tk_widget()
     graph_wd.grid_rowconfigure(0, weight=1)
@@ -717,6 +691,34 @@ def hv_current_graph(sens_name):
     widget.grid(row=0, column=0, sticky="nsew")
     status_label = tk.Label(graph_wd, text="Reading current...")
     status_label.grid(row=1, column=0)
+
+    def update_graph(current_p, current_n):
+        p_side_currents.append(current_p)
+        n_side_currents.append(current_n)
+        del p_side_currents[:-30]
+        del n_side_currents[:-30]
+
+        samples = range(len(p_side_currents))
+        last = samples[-1]
+        p_line.set_data(samples, p_side_currents)
+        n_line.set_data(samples, n_side_currents)
+        p_label.set_position((last, current_p))
+        p_label.set_text(f'{current_p:.2f}')
+        n_label.set_position((last, current_n))
+        n_label.set_text(f'{current_n:.2f}')
+
+        # Once the 30-sample window is full its horizontal limits stay fixed.
+        x_margin = last * 0.05 if last else 0.055
+        x_limits = (-x_margin, last + x_margin)
+        if ax.get_xlim() != x_limits:
+            ax.set_xlim(*x_limits)
+        low = min(min(p_side_currents), min(n_side_currents))
+        high = max(max(p_side_currents), max(n_side_currents))
+        margin = (high - low) * 0.1 if high != low else (abs(low) or 1) * 0.05
+        limits = (low - margin, high + margin)
+        if ax.get_ylim() != limits:
+            ax.set_ylim(*limits)
+        canvas.draw_idle()
 
     def stop_update():
         nonlocal after_id
@@ -746,7 +748,7 @@ def hv_current_graph(sens_name):
         in_flight = False
         if error is None:
             status_label.configure(text="")
-            update_graph(*currents, p_side_currents, n_side_currents, canvas, fig, ax)
+            update_graph(*currents)
         else:
             status_label.configure(text="SNMP read failed; retrying.", fg="red")
         if not stopped.is_set():
