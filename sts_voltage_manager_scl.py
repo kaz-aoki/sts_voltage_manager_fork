@@ -63,7 +63,6 @@ all_snmp_walk_status = {}
 text_update_items = []
 button_update_items = []
 
-int_ramptask_value = False
 
 gbt_s_nm = 0
 rp_s_nm = 0
@@ -71,7 +70,6 @@ rp_s_nm = 0
 gbt_sensors = []
 rp_sensors = []
 
-hv_sensors = []
 
 object_list = ['outputVoltage','outputSwitch','outputUserConfig','outputMeasurementSenseVoltage','outputMeasurementCurrent', 'outputSupervisionMaxTerminalVoltage','outputMeasurementTerminalVoltage']
 
@@ -116,25 +114,12 @@ with open(file_name, 'r') as file:
                     rp_sensors.append(sensors)
                     rp_s_nm += 1
                 sensors = value.strip('_')
-            elif 'HV' in value:
-                term = value.split('_')
-                pol = term[1]
-                if pol == 'P':
-                    hv_sensor = term[0]
-                    hv_sensors.append(hv_sensor)
             number_to_name[key] = value
 
 name_to_number = {v: k for k, v in number_to_name.items()}
 
-by_sensor_ramptask_running = [int_ramptask_value] *len(hv_sensors)
-
-def hv_sensor_index(target_sensor):
-    if target_sensor in hv_sensors:
-        index = hv_sensors.index(target_sensor)
-        #by_sensor_ramptask_running[index] = True  # 対応する要素を1に更新
-    else:
-        print(f"{target_sensor} not found in hv_sensors list.")
-    return index
+# Only Tk callbacks read or modify this per-sensor registry.
+active_ramps = {}
 
 def search_ch_number(search_value):
     search_value_str = str(search_value)
@@ -144,22 +129,8 @@ def search_ch_number(search_value):
     return ch_number
 
 def search_HVch_number(search_value):
-    search_value_str = str(search_value)
-    search_str_p = search_value_str +'_P_HV'
-    search_str_n = search_value_str +'_N_HV'
+    return name_to_number[f"{search_value}_P_HV"], name_to_number[f"{search_value}_N_HV"]
 
-    # 対応するキーを検索
-    if search_str_p in name_to_number:
-        p_HVch_number = name_to_number[search_str_p]
-    else:
-        print(f' {search_str_p} is nothing!')
-
-    if search_str_n in name_to_number:
-        n_HVch_number = name_to_number[search_str_n]
-    else:
-        print(f' {search_str_n} is nothing!')
-
-    return p_HVch_number,n_HVch_number
 
 def snmp_set(oid, var, ch_number):#var=str
     if oid == 'outputUserConfig' or oid == 'outputSwitch':
@@ -172,18 +143,20 @@ def snmp_set(oid, var, ch_number):#var=str
 
 
 def snmp_hvset(voltage, ch_number):
+    switch = '1' if float(voltage) != 0 else '0'
+    for oid, kind, value in [('outputVoltage', 'F', voltage), ('outputSwitch', 'i', switch)]:
+        target = f'{oid}.{ch_number}'
+        try:
+            result = subprocess.run(
+                ['snmpset', '-v', '2c', '-m', '+WIENER-CRATE-MIB', '-c', 'guru',
+                 ip, target, kind, value],
+                capture_output=True, text=True, timeout=10,
+            )
+        except (OSError, subprocess.TimeoutExpired) as exc:
+            raise RuntimeError(f'{target}: {type(exc).__name__}') from exc
+        if result.returncode:
+            raise RuntimeError(f'{target}: {result.stderr.strip() or "SNMP write failed"}')
 
-    voltage_float = float(voltage)
-    if voltage_float != 0.0:
-        output = subprocess.run('snmpset -v 2c -m +WIENER-CRATE-MIB -c guru' +' '+ ip + ' outputVoltage.'+ch_number+' F '+voltage,shell=True, stdout = subprocess.PIPE)
-        output_on_off = subprocess.run('snmpset -v 2c -m +WIENER-CRATE-MIB -c guru' +' '+ ip + ' outputSwitch.'+ch_number+' i 1',shell=True, stdout = subprocess.PIPE)
-    else:
-        output = subprocess.run('snmpset -v 2c -m +WIENER-CRATE-MIB -c guru' +' '+ ip + ' outputVoltage.'+ch_number+' F '+voltage,shell=True, stdout = subprocess.PIPE)
-        output_on_off = subprocess.run('snmpset -v 2c -m +WIENER-CRATE-MIB -c guru' +' '+ ip + ' outputSwitch.'+ch_number+' i 0',shell=True, stdout = subprocess.PIPE)
-
-    print(ch_number)
-    print(output)
-    print(output_on_off)
 
 def snmp_walk_all():
     for obj in object_list:
@@ -566,10 +539,17 @@ def lv_fix_window(row,sens_name):
 #High VOLTAGE###################################################################################################################################################
 def hv_fix_window(sens_name):
     def enter_button_click():
+        if sens_name in active_ramps:
+            messagebox.showwarning("HV Fix", f"{sens_name}: ramp in progress.", parent=fix_wd)
+            return
         voltage = voltage_set.get()
         p_HVch_number,n_HVch_number = search_HVch_number(sens_name)
-        snmp_hvset(voltage, p_HVch_number)
-        snmp_hvset(voltage, n_HVch_number)
+        try:
+            snmp_hvset(voltage, p_HVch_number)
+            snmp_hvset(voltage, n_HVch_number)
+        except (ValueError, RuntimeError) as exc:
+            messagebox.showerror("HV Fix", str(exc), parent=fix_wd)
+            return
         fix_wd.destroy()
 
     fix_wd = tk.Toplevel(root)
@@ -609,10 +589,7 @@ ramp_stop_windows = {}
 
 
 def stop_task(sens_name):
-    global by_sensor_ramptask_running
-
-    ramp_task_run_index = hv_sensor_index(sens_name)
-    if by_sensor_ramptask_running[ramp_task_run_index]:
+    if sens_name in active_ramps and sens_name not in ramp_stop_windows:
         stop_wd = tk.Toplevel(root)
         ramp_stop_windows[sens_name] = stop_wd
         stop_wd.title("Fix window")
@@ -623,8 +600,7 @@ def stop_task(sens_name):
         la.pack(anchor='center',expand=1)
         stop_wd.protocol("WM_DELETE_WINDOW", click_close)
 
-        by_sensor_ramptask_running[ramp_task_run_index] = False
-#        stop_wd.mainloop()
+        active_ramps[sens_name]()
 
 def snmpwalk_hv_current(ch):
     result_command = subprocess.run(
@@ -804,55 +780,95 @@ def show_ramp_result(sensor, message, close_graph):
     dialog.protocol("WM_DELETE_WINDOW", dismiss)
 
 
-def rampup(sens_name, time_int, voltage_int, vol_from, vol_to):
-    p_HVch_number, n_HVch_number = search_HVch_number(sens_name)
-    volt_int = float(voltage_int)
-    tim_after = float(time_int) * 1000  # 秒からミリ秒に変換
-    voltage_from = float(vol_from)
-    voltage_to = float(vol_to)
-    start_voltage = voltage_from+volt_int
+def write_ramp_step(channels, voltage, results):
+    try:
+        for side, channel in zip(("P", "N"), channels):
+            snmp_hvset(voltage, channel)
+    except Exception as exc:
+        results.put(f"{side} ({channel}), {voltage} V: {exc}")
+    else:
+        results.put(None)
 
-    graph_window = None
+
+def start_ramp(sensor, direction, time_int, voltage_int, vol_from, vol_to):
+    if sensor in active_ramps:
+        messagebox.showwarning(direction, f"{sensor}: ramp already in progress.", parent=root)
+        return False
+    try:
+        interval, step, voltage, target = map(float, (time_int, voltage_int, vol_from, vol_to))
+        if not all(map(math.isfinite, (interval, step, voltage, target))) or interval < 0 or step <= 0:
+            raise ValueError("Enter a positive voltage step and a non-negative time interval.")
+        channels = search_HVch_number(sensor)
+    except (ValueError, KeyError) as exc:
+        messagebox.showerror(direction, str(exc), parent=root)
+        return False
+
+    increasing = direction == "RampUp"
+    results = queue.Queue(maxsize=1)
+    interrupted = False
+    next_step_id = None
+    graph = hv_current_graph(sensor)
 
     def close_graph():
-        if graph_window is not None and graph_window.winfo_exists():
-            graph_window.destroy()
+        if graph.winfo_exists():
+            graph.destroy()
 
-    def ramp_up():
-        global by_sensor_ramptask_running
-        nonlocal start_voltage
-        volt_str = str(start_voltage)
-        ramp_task_run_index = hv_sensor_index(sens_name)
+    def finish_interruption():
+        del active_ramps[sensor]
+        show_ramp_result(sensor, f"{direction} successfully interrupted", close_graph)
 
-        if by_sensor_ramptask_running[ramp_task_run_index]:  # ramp_task_run が True の場合のみ実行
-            if start_voltage < voltage_to:
-                root.after(int(tim_after), ramp_up)
-                snmp_hvset(volt_str, p_HVch_number)
-                snmp_hvset(volt_str, n_HVch_number)
-                start_voltage += volt_int
-            else:
-                snmp_hvset(vol_to, p_HVch_number)
-                snmp_hvset(vol_to, n_HVch_number)
-                by_sensor_ramptask_running[ramp_task_run_index] = False
-                root.after(RAMP_COMPLETION_DELAY_MS, lambda: show_ramp_completion(graph_window, "RampUp is complete!"))
+    def interrupt():
+        nonlocal interrupted
+        interrupted = True
+        if next_step_id is not None:
+            root.after_cancel(next_step_id)
+            finish_interruption()
+        # During a write, finish the current P/N step before releasing the sensor.
+
+    def poll_step(started):
+        nonlocal next_step_id
+        try:
+            error = results.get_nowait()
+        except queue.Empty:
+            root.after(50, poll_step, started)
+            return
+        if error is not None:
+            del active_ramps[sensor]
+            stop_window = ramp_stop_windows.pop(sensor, None)
+            if stop_window is not None:
+                stop_window.destroy()
+            messagebox.showerror(f"{sensor} {direction}", error, parent=root)
+        elif interrupted:
+            finish_interruption()
+        elif voltage == target:
+            del active_ramps[sensor]
+            root.after(RAMP_COMPLETION_DELAY_MS, lambda: show_ramp_completion(graph, f"{direction} is complete!"))
         else:
-            by_sensor_ramptask_running[ramp_task_run_index] = False
-            show_ramp_result(sens_name, "RampUp successfully interrupted", close_graph)
+            delay = max(0, interval - (time.monotonic() - started))
+            next_step_id = root.after(math.ceil(delay * 1000), begin_step)
 
-    ramp_up()
-    graph_window = hv_current_graph(sens_name)
+    def begin_step():
+        nonlocal voltage, next_step_id
+        next_step_id = None
+        voltage = min(voltage + step, target) if increasing else max(voltage - step, target)
+        started = time.monotonic()
+        worker = threading.Thread(target=write_ramp_step, args=(channels, str(voltage), results), daemon=False)
+        try:
+            worker.start()
+        except RuntimeError as exc:
+            results.put(str(exc))
+        root.after(50, poll_step, started)
+
+    active_ramps[sensor] = interrupt
+    begin_step()
+    return True
+
 
 def rampup_window(sens_name):
     def enter_button_click():
-        global by_sensor_ramptask_running
-        ramp_task_run_index = hv_sensor_index(sens_name)
-        by_sensor_ramptask_running[ramp_task_run_index] = True
-        ti_int = time_interval.get()
-        vol_int = voltage_interval.get()
-        vol_from = voltage_from.get()
-        vol_to = voltage_to.get()
-        ramp_wd.destroy()
-        rampup(sens_name, ti_int, vol_int, vol_from, vol_to)
+        if start_ramp(sens_name, "RampUp", time_interval.get(), voltage_interval.get(),
+                      voltage_from.get(), voltage_to.get()):
+            ramp_wd.destroy()
 
     ramp_wd = tk.Toplevel(root)
     ramp_wd.title("RampUp window")
@@ -906,54 +922,11 @@ def rampup_window(sens_name):
 #    ramp_wd.mainloop()
 
 #---DOWN---------------------------------------------------------------------
-def rampdown(sens_name_dn, time_int_dn, voltage_int_dn, vol_from_dn, vol_to_dn):
-    p_HVch_number_dn, n_HVch_number_dn = search_HVch_number(sens_name_dn)
-    volt_int_dn = float(voltage_int_dn)
-    tim_after_dn = float(time_int_dn) * 1000  # 秒からミリ秒に変換
-    voltage_from_dn = float(vol_from_dn)
-    voltage_to_dn = float(vol_to_dn)
-    start_voltage_dn = voltage_from_dn-volt_int_dn
-
-    graph_window = None
-
-    def close_graph():
-        if graph_window is not None and graph_window.winfo_exists():
-            graph_window.destroy()
-
-    def ramp_down():
-        global by_sensor_ramptask_running
-        nonlocal start_voltage_dn
-        volt_str_dn = str(start_voltage_dn)
-        ramp_task_run_index = hv_sensor_index(sens_name_dn)
-
-        if by_sensor_ramptask_running[ramp_task_run_index]:
-            if start_voltage_dn > voltage_to_dn:
-                root.after(int(tim_after_dn), ramp_down)
-                snmp_hvset(volt_str_dn, p_HVch_number_dn)
-                snmp_hvset(volt_str_dn, n_HVch_number_dn)
-                start_voltage_dn -= volt_int_dn
-            else:
-                snmp_hvset(vol_to_dn, p_HVch_number_dn)
-                snmp_hvset(vol_to_dn, n_HVch_number_dn)
-                by_sensor_ramptask_running[ramp_task_run_index] = False
-                root.after(RAMP_COMPLETION_DELAY_MS, lambda: show_ramp_completion(graph_window, "RampDown is complete!"))
-        else:
-            by_sensor_ramptask_running[ramp_task_run_index] = False
-            show_ramp_result(sens_name_dn, "RampDown successfully interrupted", close_graph)
-    ramp_down()
-    graph_window = hv_current_graph(sens_name_dn)
-
 def rampdown_window(sens_name):
     def enter_button_click():
-        global by_sensor_ramptask_running
-        ramp_task_run_index = hv_sensor_index(sens_name)
-        by_sensor_ramptask_running[ramp_task_run_index] = True
-        ti_int = time_interval.get()
-        vol_int = voltage_interval.get()
-        vol_from = voltage_from.get()
-        vol_to = voltage_to.get()
-        ramp_wd.destroy()
-        rampdown(sens_name, ti_int, vol_int, vol_from, vol_to)
+        if start_ramp(sens_name, "RampDown", time_interval.get(), voltage_interval.get(),
+                      voltage_from.get(), voltage_to.get()):
+            ramp_wd.destroy()
 
     ramp_wd = tk.Toplevel(root)
     ramp_wd.title("RampDown window")
@@ -1007,7 +980,6 @@ def rampdown_window(sens_name):
 
 #UPDATE#########################################################################################################################################
 def sensor_display(row, sens_name, oid):
-    global by_sensor_ramptask_running
     current_text = gui_value(row,sens_name,oid)
     try:
         float_current_text = float(current_text)
@@ -1016,8 +988,7 @@ def sensor_display(row, sens_name, oid):
         print("error")
     if row == 6 or row ==7:
         if abs(float_current_text) !=0 and oid == 'outputMeasurementSenseVoltage':
-            ramp_task_run_index = hv_sensor_index(sens_name)
-            if by_sensor_ramptask_running[ramp_task_run_index]:
+            if sens_name in active_ramps:
                 bg_onoff = 'yellow'
             elif abs(float_current_text) > 1.5:
                 bg_onoff = 'green'
