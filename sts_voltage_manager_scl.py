@@ -1006,7 +1006,7 @@ def rampdown_window(sens_name):
 #    ramp_wd.mainloop()
 
 #UPDATE#########################################################################################################################################
-def update_text(label,row,sens_name,oid):
+def sensor_display(row, sens_name, oid):
     global by_sensor_ramptask_running
     current_text = gui_value(row,sens_name,oid)
     try:
@@ -1033,6 +1033,11 @@ def update_text(label,row,sens_name,oid):
     else:
         bg_onoff = 'gray90'
 
+    return current_text, bg_onoff
+
+
+def update_text(label,row,sens_name,oid):
+    current_text, bg_onoff = sensor_display(row, sens_name, oid)
     old_text = getattr(label, "_last_text", None)
     old_bg = getattr(label, "_last_bg", None)
 
@@ -1123,6 +1128,10 @@ def process_changed_widgets():
                 _, label, row, sens_name = item
                 update_text(label, row, sens_name, oid)
 
+            elif kind == 'measurement':
+                _, canvas, row, col = item
+                canvas.refresh(row, col)
+
             elif kind == 'device':
                 _, label, ch_name = item
                 update_device_text(label, ch_name, oid)
@@ -1164,16 +1173,74 @@ def update_time_fun():
     root.after(1000, update_time_fun)
 
 #CREAT FRAME##################################################################################################################################################
+class SensorMeasurements(tk.Canvas):
+    oids = (
+        "outputMeasurementTerminalVoltage",
+        "outputMeasurementSenseVoltage",
+        "outputMeasurementCurrent",
+    )
+
+    def __init__(self, frame, rows, sens_name):
+        self.table_font = font.nametofont("TkDefaultFont")
+        headers = ("TVmeas [V]", "Vmeas [V]", "Imeas [A]")
+        hv_headers = (*headers[:2], "Imeas [uA]")
+        self.widths = [self.table_font.measure(title) + 6 for title in hv_headers]
+        super().__init__(frame, width=sum(self.widths), height=1,
+                         highlightthickness=0, borderwidth=0, takefocus=0)
+        self.sens_name = sens_name
+        self.cells = {}
+        self.displayed = {}
+        self.grid(row=0, column=6, rowspan=rows, columnspan=3, sticky="nsew")
+        for row in range(rows):
+            frame.grid_rowconfigure(row, minsize=self.table_font.metrics("linespace") + 4)
+            header = row in (0, 5)
+            for col, oid in enumerate(self.oids):
+                title = (hv_headers if row == 5 else headers)[col] if header else ""
+                box = self.create_rectangle(0, 0, 0, 0, outline="black",
+                                            fill="gray70" if header else "gray90")
+                text = self.create_text(0, 0, text=title, font=self.table_font)
+                self.cells[row, col] = box, text
+                if not header:
+                    channel = sensor_row_to_ch_name(row, sens_name)
+                    add_text_widget_binding(oid, channel, ("measurement", self, row, col))
+                    self.refresh(row, col)
+        self.bind("<Configure>", self.layout)
+
+    def layout(self, event):
+        # Match the actual grid rows, including rows enlarged by the control buttons.
+        for (row, col), (box, text) in self.cells.items():
+            _, top, _, height = self.master.grid_bbox(6, row)
+            left = sum(self.widths[:col])
+            right = left + self.widths[col]
+            self.coords(box, left, top, right - 1, top + height - 1)
+            self.coords(text, (left + right) / 2, top + height / 2)
+
+    def refresh(self, row, col):
+        value, color = sensor_display(row, self.sens_name, self.oids[col])
+        old_value, old_color = self.displayed.get((row, col), (None, None))
+        box, text = self.cells[row, col]
+        if value != old_value:
+            self.itemconfigure(text, text=value)
+            width = self.table_font.measure(value) + 6
+            if width > self.widths[col]:
+                self.widths[col] = width
+                self.configure(width=sum(self.widths))
+        if color != old_color:
+            self.itemconfigure(box, fill=color)
+        self.displayed[row, col] = value, color
+
+
 def create_frame(root, rows, columns, sens_name):
     frame = tk.Frame(root)
     labels = []
     buttons = []
 
+    SensorMeasurements(frame, rows, sens_name)
     for row in range(rows):
         row_labels = []
         row_buttons = []
 
-        for col in range(columns):
+        for col in range(min(columns, 6)):
             # Each spanning cell needs only one widget at its grid position.
             if col == 0 and row > 1:
                 continue
@@ -1377,42 +1444,6 @@ def create_frame(root, rows, columns, sens_name):
                 label.grid(row=row, column=col, sticky="nsew")
                 row_labels.append(label)
 
-            #LV/HV measurement
-            elif row != 0 and row != 5 and (col == 6 or col == 7 or col == 8):
-                #outputMeasurementTerminalVoltage
-                if col == 6:
-                    label_text = '0'
-                    label = tk.Label(frame, borderwidth=1, relief="solid", text=label_text, bg= 'gray90')
-                    label.grid(row=row, column=col, sticky="nsew")
-                    row_labels.append(label)
-                    ### text_update_items.append(('sensor', label, row, sens_name, 'outputMeasurementTerminalVoltage'))
-                    ch_name = sensor_row_to_ch_name(row, sens_name)
-                    add_text_widget_binding('outputMeasurementTerminalVoltage', ch_name, ('sensor', label, row, sens_name))
-                    update_text(label,row,sens_name,'outputMeasurementTerminalVoltage')
-
-                #outputMeasurementSenseVoltage
-                if col == 7:
-                    label_text = '0'
-                    label = tk.Label(frame, borderwidth=1, relief="solid", text=label_text, bg= 'gray90')
-                    label.grid(row=row, column=col, sticky="nsew")
-                    row_labels.append(label)
-                    ### text_update_items.append(('sensor', label, row, sens_name, 'outputMeasurementSenseVoltage'))
-                    ch_name = sensor_row_to_ch_name(row, sens_name)
-                    add_text_widget_binding('outputMeasurementSenseVoltage', ch_name,
-                                            ('sensor', label, row, sens_name))
-                    update_text(label,row,sens_name,'outputMeasurementSenseVoltage')
-
-                #outputMeasurementCurrent
-                if col == 8:
-                    label_text = '0'
-                    label = tk.Label(frame, borderwidth=1, relief="solid", text=label_text, bg= 'gray90')
-                    label.grid(row=row, column=col, sticky="nsew")
-                    row_labels.append(label)
-                    ### text_update_items.append(('sensor', label, row, sens_name, 'outputMeasurementCurrent'))
-                    ch_name = sensor_row_to_ch_name(row, sens_name)
-                    add_text_widget_binding('outputMeasurementCurrent', ch_name, ('sensor', label, row, sens_name))
-                    update_text(label,row,sens_name,'outputMeasurementCurrent')
-
             #LV MaxTV
             elif row != 0 and row != 5 and row != 6 and row != 7 and col == 4:
                 label_text = '0'
@@ -1455,12 +1486,6 @@ def create_frame(root, rows, columns, sens_name):
                         label_text = "MaxTV [V]"
                     elif col == 5:
                         label_text = "SW mode"
-                    elif col == 6:
-                        label_text = "TVmeas [V]"
-                    elif col == 7:
-                        label_text = "Vmeas [V]"
-                    elif col == 8:
-                        label_text = "Imeas [A]"
                 elif row == 5:
                     bg_color = 'gray70'
                     if col == 1:
@@ -1473,12 +1498,6 @@ def create_frame(root, rows, columns, sens_name):
                         label_text = "I mon"
                     elif col == 5:
                         label_text = "N/P"
-                    elif col == 6:
-                        label_text = "TVmeas [V]"
-                    elif col == 7:
-                        label_text = "Vmeas [V]"
-                    elif col == 8:
-                        label_text = "Imeas [uA]"
                 else:
                     bg_color = 'gray90'
                     label_text = '0'
