@@ -121,6 +121,7 @@ name_to_number = {v: k for k, v in number_to_name.items()}
 # Only Tk callbacks read or modify this per-sensor registry.
 active_ramps = {}
 DEFAULT_HV_RAMP_UP_TARGET = '75'
+marked_sensors = {}
 hv_target_labels = {}
 
 
@@ -882,6 +883,73 @@ def start_ramp(sensor, direction, time_int, voltage_int, vol_from, vol_to):
     return True
 
 
+def ramp_marked_sensors(direction):
+    sensors = [sensor for sensor, mark in marked_sensors.items() if mark.get()]
+    if not sensors:
+        messagebox.showinfo(direction, "Mark at least one sensor first.", parent=root)
+        return
+
+    up = direction == "RampUp"
+    target = float(DEFAULT_HV_RAMP_UP_TARGET) if up else 0.0
+    interval, step = (15, 5) if up else (10, 10)
+    dialog = tk.Toplevel(root)
+    dialog.title("Confirm marked HV")
+    dialog.transient(root)
+    action = "up" if up else "down"
+    warning = (f"Ramp {action} all marked HV to {target:g} V?\n"
+               f"Sensors: {', '.join(map(str, sensors))}\n"
+               f"{step} V per step, every {interval} s.\nAre you sure you want to proceed?")
+    tk.Label(dialog, text=warning, fg="red", wraplength=460).pack(padx=20, pady=12)
+    buttons = ttk.Frame(dialog)
+    buttons.pack(pady=(0, 12))
+    confirmed = False
+
+    def confirm():
+        nonlocal confirmed
+        confirmed = True
+        dialog.destroy()
+
+    no = ttk.Button(buttons, text="No", command=dialog.destroy)
+    no.pack(side="left", padx=5)
+    ttk.Button(buttons, text="Yes", command=confirm).pack(side="left", padx=5)
+    dialog.bind("<Escape>", lambda event: dialog.destroy())
+    dialog.grab_set()
+    no.focus_set()
+    root.wait_window(dialog)
+    if not confirmed:
+        return
+
+    # Check all selected channels before launching the first ramp.
+    starts = {}
+    with snmp_data_lock:
+        setpoints = all_snmp_walk_status["outputVoltage"].copy()
+    for sensor in sensors:
+        if sensor in active_ramps:
+            messagebox.showwarning(direction, f"{sensor}: ramp already in progress.", parent=root)
+            return
+        try:
+            p, n = search_HVch_number(sensor)
+            vp, vn = float(setpoints[p]), float(setpoints[n])
+        except (KeyError, ValueError, TypeError):
+            messagebox.showwarning(direction, f"{sensor}: HV setpoint unavailable.", parent=root)
+            return
+        if not math.isfinite(vp) or not math.isfinite(vn) or vp != vn:
+            messagebox.showwarning(direction, f"{sensor}: check P/N setpoints before starting.", parent=root)
+            return
+        if (up and vp > target) or (not up and vp < target):
+            messagebox.showwarning(direction, f"{sensor}: {vp:g} V is outside the requested ramp direction.", parent=root)
+            return
+        if vp != target:
+            starts[sensor] = vp
+
+    if not starts:
+        messagebox.showinfo(direction, "All marked HV setpoints are already at the target.", parent=root)
+        return
+    for sensor, start in starts.items():
+        if not start_ramp(sensor, direction, interval, step, start, target):
+            break
+
+
 def rampup_window(sens_name):
     def enter_button_click():
         if start_ramp(sens_name, "RampUp", time_interval.get(), voltage_interval.get(),
@@ -1247,8 +1315,15 @@ def create_frame(root, rows, columns, sens_name):
                 if lv_channel.startswith("u") and lv_channel[1:].isdigit():
                     crate_number = int(lv_channel[1:]) // 100
                     label_text += f"\n(c{crate_number})"
-                label = tk.Label(frame, borderwidth=1, relief="solid", text=label_text, bg='gray70')
-                label.grid(row=row, column=col, rowspan=rows-1, sticky="nsew")
+                cell = tk.Frame(frame, borderwidth=1, relief="solid", bg="gray70")
+                cell.grid(row=row, column=col, rowspan=rows-1, sticky="nsew")
+                group = tk.Frame(cell, bg="gray70")
+                group.pack(expand=True)
+                mark = tk.BooleanVar(master=cell, value=False)
+                marked_sensors[sens_name] = mark
+                tk.Checkbutton(group, variable=mark, bg="gray70").pack()
+                label = tk.Label(group, text=label_text, bg="gray70")
+                label.pack()
                 row_labels.append(label)
 
             #LV name
@@ -1862,6 +1937,13 @@ if __name__ == "__main__":
         bg="gray80", fg="black",
     )
     max_tv_permission_button.pack(side=tk.BOTTOM, fill=tk.X, padx=5, pady=5)
+
+    marked_controls = ttk.Frame(root)
+    marked_controls.pack(side=tk.BOTTOM, pady=3)
+    ttk.Button(marked_controls, text="All marked HV up",
+               command=lambda: ramp_marked_sensors("RampUp")).pack(side=tk.LEFT, padx=4)
+    ttk.Button(marked_controls, text="All marked HV down",
+               command=lambda: ramp_marked_sensors("RampDown")).pack(side=tk.LEFT, padx=4)
 
     scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
     canvas.pack(expand=True, fill=tk.BOTH)
