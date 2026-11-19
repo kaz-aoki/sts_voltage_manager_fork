@@ -712,9 +712,11 @@ def hv_current_graph(sens_name):
     fig.text(0.5, 0.93, f'{sens_name}_HV', ha='center', transform=fig.transFigure, fontsize=12, color='green')
     canvas = FigureCanvasTkAgg(fig, master=graph_wd)
     widget = canvas.get_tk_widget()
-    widget.pack()
+    graph_wd.grid_rowconfigure(0, weight=1)
+    graph_wd.grid_columnconfigure(0, weight=1)
+    widget.grid(row=0, column=0, sticky="nsew")
     status_label = tk.Label(graph_wd, text="Reading current...")
-    status_label.pack()
+    status_label.grid(row=1, column=0)
 
     def stop_update():
         nonlocal after_id
@@ -767,7 +769,7 @@ def hv_current_graph(sens_name):
     graph_wd.protocol("WM_DELETE_WINDOW", close_graph)
     graph_wd.bind("<Destroy>", on_destroy, add="+")
     stop_button = tk.Button(graph_wd, text="Stop", command=stop_update)
-    stop_button.pack()
+    stop_button.grid(row=2, column=0)
 
     refresh()
     return graph_wd
@@ -805,6 +807,14 @@ def rampup(sens_name, time_int, voltage_int, vol_from, vol_to):
         if graph_window is not None and graph_window.winfo_exists():
             graph_window.destroy()
 
+    def show_completion():
+        if graph_window is None or not graph_window.winfo_exists():
+            return
+        bar = ttk.Frame(graph_window)
+        bar.grid(row=3, column=0, pady=4)
+        ttk.Label(bar, text="RampUp is complete!").pack(side="left", padx=6)
+        ttk.Button(bar, text="OK", command=close_graph).pack(side="left")
+
     def ramp_up():
         global by_sensor_ramptask_running
         nonlocal start_voltage
@@ -821,7 +831,8 @@ def rampup(sens_name, time_int, voltage_int, vol_from, vol_to):
                 snmp_hvset(vol_to, p_HVch_number)
                 snmp_hvset(vol_to, n_HVch_number)
                 by_sensor_ramptask_running[ramp_task_run_index] = False
-                show_ramp_result(sens_name, "RampUp is complete!", close_graph)
+                # A one-step ramp can finish before its graph has been created.
+                root.after_idle(show_completion)
         else:
             by_sensor_ramptask_running[ramp_task_run_index] = False
             show_ramp_result(sens_name, "RampUp successfully interrupted", close_graph)
