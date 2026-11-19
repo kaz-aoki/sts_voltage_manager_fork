@@ -777,6 +777,15 @@ def hv_current_graph(sens_name):
     return graph_wd
 
 #######################################################
+def show_ramp_completion(graph_window, message):
+    if graph_window is None or not graph_window.winfo_exists():
+        return
+    bar = ttk.Frame(graph_window)
+    bar.grid(row=3, column=0, pady=4)
+    ttk.Label(bar, text=message).pack(side="left", padx=6)
+    ttk.Button(bar, text="OK", command=graph_window.destroy).pack(side="left")
+
+
 def show_ramp_result(sensor, message, close_graph):
     stop_window = ramp_stop_windows.pop(sensor, None)
     dialog = tk.Toplevel(root)
@@ -809,14 +818,6 @@ def rampup(sens_name, time_int, voltage_int, vol_from, vol_to):
         if graph_window is not None and graph_window.winfo_exists():
             graph_window.destroy()
 
-    def show_completion():
-        if graph_window is None or not graph_window.winfo_exists():
-            return
-        bar = ttk.Frame(graph_window)
-        bar.grid(row=3, column=0, pady=4)
-        ttk.Label(bar, text="RampUp is complete!").pack(side="left", padx=6)
-        ttk.Button(bar, text="OK", command=close_graph).pack(side="left")
-
     def ramp_up():
         global by_sensor_ramptask_running
         nonlocal start_voltage
@@ -834,7 +835,7 @@ def rampup(sens_name, time_int, voltage_int, vol_from, vol_to):
                 snmp_hvset(vol_to, n_HVch_number)
                 by_sensor_ramptask_running[ramp_task_run_index] = False
                 # A one-step ramp can finish before its graph has been created.
-                root.after_idle(show_completion)
+                root.after_idle(lambda: show_ramp_completion(graph_window, "RampUp is complete!"))
         else:
             by_sensor_ramptask_running[ramp_task_run_index] = False
             show_ramp_result(sens_name, "RampUp successfully interrupted", close_graph)
@@ -936,7 +937,7 @@ def rampdown(sens_name_dn, time_int_dn, voltage_int_dn, vol_from_dn, vol_to_dn):
                 snmp_hvset(vol_to_dn, p_HVch_number_dn)
                 snmp_hvset(vol_to_dn, n_HVch_number_dn)
                 by_sensor_ramptask_running[ramp_task_run_index] = False
-                show_ramp_result(sens_name_dn, "RampDown is complete!", close_graph)
+                root.after_idle(lambda: show_ramp_completion(graph_window, "RampDown is complete!"))
         else:
             by_sensor_ramptask_running[ramp_task_run_index] = False
             show_ramp_result(sens_name_dn, "RampDown successfully interrupted", close_graph)
