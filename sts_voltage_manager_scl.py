@@ -915,9 +915,9 @@ def ramp_marked_sensors(direction):
         confirmed = True
         dialog.destroy()
 
+    ttk.Button(buttons, text="Yes", command=confirm).pack(side="left", padx=5)
     no = ttk.Button(buttons, text="No", command=dialog.destroy)
     no.pack(side="left", padx=5)
-    ttk.Button(buttons, text="Yes", command=confirm).pack(side="left", padx=5)
     dialog.bind("<Escape>", lambda event: dialog.destroy())
     dialog.grab_set()
     no.focus_set()
