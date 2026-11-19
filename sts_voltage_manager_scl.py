@@ -1413,11 +1413,21 @@ def create_frame(root, rows, columns, sens_name):
                     side = "P" if row == 1 else "N"
                     mark = tk.BooleanVar(master=frame, value=False)
                     marked_lv_sides[sens_name, side] = mark
-                    label = tk.Checkbutton(frame, text=label_text, variable=mark, anchor="w",
-                                           bg=bg_color, borderwidth=1, relief="solid")
+                    cell = tk.Frame(frame, bg=bg_color, borderwidth=1, relief="solid")
+                    cell.grid(row=row, column=col, sticky="nsew")
+                    # Equal side columns keep the voltage text on the same centerline as the 1.2V row.
+                    for side_col in (0, 2):
+                        cell.grid_columnconfigure(side_col, weight=1, uniform="side")
+                    cell.grid_rowconfigure(0, weight=1)
+                    check = tk.Checkbutton(cell, variable=mark, bg=bg_color, padx=0)
+                    check.grid(row=0, column=0, sticky="e")
+                    label = tk.Label(cell, text=label_text, bg=bg_color)
+                    label.grid(row=0, column=1)
+                    for widget in (cell, label):
+                        widget.bind("<Button-1>", lambda event, button=check: button.invoke())
                 else:
                     label = tk.Label(frame, borderwidth=1, relief="solid", text=label_text, bg=bg_color)
-                label.grid(row=row, column=col, sticky="nsew")
+                    label.grid(row=row, column=col, sticky="nsew")
                 row_labels.append(label)
 
             #HV outputVoltage
