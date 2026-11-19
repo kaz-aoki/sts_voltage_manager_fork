@@ -676,6 +676,7 @@ def hv_current_graph(sens_name):
     ax = fig.add_subplot(111)
     fig.text(0.5, 0.93, f'{sens_name}_HV', ha='center', transform=fig.transFigure, fontsize=12, color='green')
     fig.subplots_adjust(right=0.85)
+    ax.set_xlim(0, 30)
     ax.set_xlabel('Time [s]')
     ax.set_ylabel('Current [µA]')
     ax.axhline(y=0, color='gray', linestyle='--')
@@ -707,11 +708,6 @@ def hv_current_graph(sens_name):
         n_label.set_position((last, current_n))
         n_label.set_text(f'{current_n:.2f}')
 
-        # Once the 30-sample window is full its horizontal limits stay fixed.
-        x_margin = last * 0.05 if last else 0.055
-        x_limits = (-x_margin, last + x_margin)
-        if ax.get_xlim() != x_limits:
-            ax.set_xlim(*x_limits)
         low = min(min(p_side_currents), min(n_side_currents))
         high = max(max(p_side_currents), max(n_side_currents))
         margin = (high - low) * 0.1 if high != low else (abs(low) or 1) * 0.05
