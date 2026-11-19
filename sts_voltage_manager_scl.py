@@ -122,6 +122,8 @@ name_to_number = {v: k for k, v in number_to_name.items()}
 active_ramps = {}
 DEFAULT_HV_RAMP_UP_TARGET = '75'
 marked_sensors = {}
+marked_lv_sides = {}
+marked_lv_buttons = []
 hv_target_labels = {}
 
 
@@ -151,20 +153,24 @@ def snmp_set(oid, var, ch_number):#var=str
     print(output)
 
 
+def write_snmp_value(oid, ch_number, kind, value):
+    target = f'{oid}.{ch_number}'
+    try:
+        result = subprocess.run(
+            ['snmpset', '-v', '2c', '-m', '+WIENER-CRATE-MIB', '-c', 'guru',
+             ip, target, kind, value],
+            capture_output=True, text=True, timeout=10,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        raise RuntimeError(f'{target}: {type(exc).__name__}') from exc
+    if result.returncode:
+        raise RuntimeError(f'{target}: {result.stderr.strip() or "SNMP write failed"}')
+
+
 def snmp_hvset(voltage, ch_number):
     switch = '1' if float(voltage) != 0 else '0'
     for oid, kind, value in [('outputVoltage', 'F', voltage), ('outputSwitch', 'i', switch)]:
-        target = f'{oid}.{ch_number}'
-        try:
-            result = subprocess.run(
-                ['snmpset', '-v', '2c', '-m', '+WIENER-CRATE-MIB', '-c', 'guru',
-                 ip, target, kind, value],
-                capture_output=True, text=True, timeout=10,
-            )
-        except (OSError, subprocess.TimeoutExpired) as exc:
-            raise RuntimeError(f'{target}: {type(exc).__name__}') from exc
-        if result.returncode:
-            raise RuntimeError(f'{target}: {result.stderr.strip() or "SNMP write failed"}')
+        write_snmp_value(oid, ch_number, kind, value)
 
 
 def snmp_walk_all():
@@ -889,22 +895,10 @@ def stop_marked_ramps():
             stop_task(sensor)
 
 
-def ramp_marked_sensors(direction):
-    sensors = [sensor for sensor, mark in marked_sensors.items() if mark.get()]
-    if not sensors:
-        messagebox.showinfo(direction, "Mark at least one sensor first.", parent=root)
-        return
-
-    up = direction == "RampUp"
-    target = float(DEFAULT_HV_RAMP_UP_TARGET) if up else 0.0
-    interval, step = (15, 5) if up else (10, 10)
+def confirm_marked_operation(title, warning):
     dialog = tk.Toplevel(root)
-    dialog.title("Confirm marked HV")
+    dialog.title(title)
     dialog.transient(root)
-    action = "up" if up else "down"
-    warning = (f"Ramp {action} all marked HV to {target:g} V?\n"
-               f"Sensors: {', '.join(map(str, sensors))}\n"
-               f"{step} V per step, every {interval} s.\nAre you sure you want to proceed?")
     tk.Label(dialog, text=warning, fg="red", wraplength=460).pack(padx=20, pady=12)
     buttons = ttk.Frame(dialog)
     buttons.pack(pady=(0, 12))
@@ -922,7 +916,77 @@ def ramp_marked_sensors(direction):
     dialog.grab_set()
     no.focus_set()
     root.wait_window(dialog)
-    if not confirmed:
+    return confirmed
+
+
+def switch_marked_lv(enabled):
+    selected = [key for key, mark in marked_lv_sides.items() if mark.get()]
+    if not selected:
+        messagebox.showinfo("LV", "Mark at least one P or N side first.", parent=root)
+        return
+
+    targets = []
+    for sensor, side in selected:
+        first_row = 1 if side == "P" else 3
+        for row, rail in ((first_row, "1.8V"), (first_row + 1, "1.2V")):
+            channel = name_to_number.get(sensor_row_to_ch_name(row, sensor))
+            if channel is None:
+                messagebox.showerror("LV", f"Missing channel: {sensor} {side} {rail}", parent=root)
+                return
+            targets.append((f"{sensor} {side} {rail}", channel))
+
+    action = "ON" if enabled else "OFF"
+    sides = ", ".join(f"{sensor} {side}" for sensor, side in selected)
+    warning = (f"Switch both 1.8V and 1.2V {action} for the following sides?\n"
+               f"{sides}\nAre you sure you want to proceed?")
+    if not confirm_marked_operation(f"Confirm marked LV {action}", warning):
+        return
+
+    results = queue.Queue(maxsize=1)
+
+    def write_switches():
+        for index, (label, channel) in enumerate(targets):
+            try:
+                write_snmp_value("outputSwitch", channel, "i", "1" if enabled else "0")
+            except Exception as exc:
+                results.put(f"{label}: {exc}\n{index}/{len(targets)} writes succeeded. Remaining writes stopped.")
+                return
+        results.put(None)
+
+    def poll():
+        try:
+            error = results.get_nowait()
+        except queue.Empty:
+            root.after(50, poll)
+            return
+        for button in marked_lv_buttons:
+            button.state(["!disabled"])
+        if error:
+            messagebox.showerror(f"LV {action}", error, parent=root)
+
+    for button in marked_lv_buttons:
+        button.state(["disabled"])
+    try:
+        threading.Thread(target=write_switches, daemon=False).start()
+    except RuntimeError as exc:
+        results.put(str(exc))
+    root.after(50, poll)
+
+
+def ramp_marked_sensors(direction):
+    sensors = [sensor for sensor, mark in marked_sensors.items() if mark.get()]
+    if not sensors:
+        messagebox.showinfo(direction, "Mark at least one sensor first.", parent=root)
+        return
+
+    up = direction == "RampUp"
+    target = float(DEFAULT_HV_RAMP_UP_TARGET) if up else 0.0
+    interval, step = (15, 5) if up else (10, 10)
+    action = "up" if up else "down"
+    warning = (f"Ramp {action} all marked HV to {target:g} V?\n"
+               f"Sensors: {', '.join(map(str, sensors))}\n"
+               f"{step} V per step, every {interval} s.\nAre you sure you want to proceed?")
+    if not confirm_marked_operation("Confirm marked HV", warning):
         return
 
     # Check all selected channels before launching the first ramp.
@@ -1345,7 +1409,14 @@ def create_frame(root, rows, columns, sens_name):
                 elif row == 4:
                     label_text = 'N 1.2V'
 
-                label = tk.Label(frame, borderwidth=1, relief="solid", text=label_text, bg=bg_color)
+                if row in (1, 3):
+                    side = "P" if row == 1 else "N"
+                    mark = tk.BooleanVar(master=frame, value=False)
+                    marked_lv_sides[sens_name, side] = mark
+                    label = tk.Checkbutton(frame, text=label_text, variable=mark, anchor="w",
+                                           bg=bg_color, borderwidth=1, relief="solid")
+                else:
+                    label = tk.Label(frame, borderwidth=1, relief="solid", text=label_text, bg=bg_color)
                 label.grid(row=row, column=col, sticky="nsew")
                 row_labels.append(label)
 
@@ -1946,6 +2017,12 @@ if __name__ == "__main__":
                command=lambda: ramp_marked_sensors("RampDown")).pack(side=tk.LEFT, padx=4)
     ttk.Button(marked_controls, text="All marked HV stop",
                command=stop_marked_ramps).pack(side=tk.LEFT, padx=4)
+
+    for action, enabled, padding in (("ON", True, (20, 4)), ("OFF", False, 4)):
+        button = ttk.Button(marked_controls, text=f"All marked LV {action}",
+                            command=lambda value=enabled: switch_marked_lv(value))
+        button.pack(side=tk.LEFT, padx=padding)
+        marked_lv_buttons.append(button)
 
     max_tv_permission_button = tk.Button(
         marked_controls, text="MaxTV変更許可（危険）", command=toggle_max_tv_edit,
