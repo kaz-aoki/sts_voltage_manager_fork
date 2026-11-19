@@ -126,7 +126,7 @@ hv_target_labels = {}
 
 def hv_target_text(sensor):
     if sensor not in hv_target_labels:
-        hv_target_labels[sensor] = tk.StringVar(master=root, value=f"Target: {DEFAULT_HV_RAMP_UP_TARGET} V")
+        hv_target_labels[sensor] = tk.StringVar(master=root, value=f"({DEFAULT_HV_RAMP_UP_TARGET} V)")
     return hv_target_labels[sensor]
 
 def search_ch_number(search_value):
@@ -558,7 +558,7 @@ def hv_fix_window(sens_name):
         except (ValueError, RuntimeError) as exc:
             messagebox.showerror("HV Fix", str(exc), parent=fix_wd)
             return
-        hv_target_text(sens_name).set(f"Target: {voltage.strip()} V")
+        hv_target_text(sens_name).set(f"({voltage.strip()} V)")
         fix_wd.destroy()
 
     fix_wd = tk.Toplevel(root)
@@ -876,7 +876,7 @@ def start_ramp(sensor, direction, time_int, voltage_int, vol_from, vol_to):
             stop_task(sensor)
 
     graph = hv_current_graph(sensor, stop_ramp=stop_from_plot)
-    hv_target_text(sensor).set(f"Target: {str(vol_to).strip()} V")
+    hv_target_text(sensor).set(f"({str(vol_to).strip()} V)")
     active_ramps[sensor] = interrupt
     begin_step()
     return True
