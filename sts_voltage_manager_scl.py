@@ -120,6 +120,14 @@ name_to_number = {v: k for k, v in number_to_name.items()}
 
 # Only Tk callbacks read or modify this per-sensor registry.
 active_ramps = {}
+DEFAULT_HV_RAMP_UP_TARGET = '75'
+hv_target_labels = {}
+
+
+def hv_target_text(sensor):
+    if sensor not in hv_target_labels:
+        hv_target_labels[sensor] = tk.StringVar(master=root, value=f"Target: {DEFAULT_HV_RAMP_UP_TARGET} V")
+    return hv_target_labels[sensor]
 
 def search_ch_number(search_value):
     search_value_str = str(search_value)
@@ -550,6 +558,7 @@ def hv_fix_window(sens_name):
         except (ValueError, RuntimeError) as exc:
             messagebox.showerror("HV Fix", str(exc), parent=fix_wd)
             return
+        hv_target_text(sens_name).set(f"Target: {voltage.strip()} V")
         fix_wd.destroy()
 
     fix_wd = tk.Toplevel(root)
@@ -867,6 +876,7 @@ def start_ramp(sensor, direction, time_int, voltage_int, vol_from, vol_to):
             stop_task(sensor)
 
     graph = hv_current_graph(sensor, stop_ramp=stop_from_plot)
+    hv_target_text(sensor).set(f"Target: {str(vol_to).strip()} V")
     active_ramps[sensor] = interrupt
     begin_step()
     return True
@@ -920,7 +930,7 @@ def rampup_window(sens_name):
     label_from.pack(side="left")
 
     voltage_to = tk.Entry(frame3,justify="center",width=8)
-    voltage_to.insert(0, '75')
+    voltage_to.insert(0, DEFAULT_HV_RAMP_UP_TARGET)
     voltage_to.pack(side="left")
 
 
@@ -1279,7 +1289,9 @@ def create_frame(root, rows, columns, sens_name):
                 add_text_widget_binding('outputVoltage', ch_name, ('sensor',label, row, sens_name))
                 update_text(label,row,sens_name,'outputVoltage')
 
-                button.grid(row=0, column=1, sticky="nsew")
+                target_label = tk.Label(merged_frame, textvariable=hv_target_text(sens_name), bg='gray90')
+                target_label.grid(row=1, column=0, sticky="nsew")
+                button.grid(row=0, column=1, rowspan=2, sticky="nsew")
                 row_buttons.append(button)
 
             #LV Power & UserConfig
